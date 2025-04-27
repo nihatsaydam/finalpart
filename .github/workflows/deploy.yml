@@ -5,8 +5,15 @@ on:
     branches: [ main, master ]  # Ana dallar üzerinde değişiklik olduğunda
 
 jobs:
-  deploy:
+  deploy-all-hotels:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        hotel:
+          - { name: "Hotel One", db_name: "GreenP", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel1" }
+          - { name: "Hotel Two", db_name: "HotelTwo", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel2" }
+          # Aşağıdaki satırları kopyalayarak yeni oteller ekleyebilirsiniz
+          # - { name: "Hotel Three", db_name: "HotelThree", admin_email: "other.email@example.com", service_prefix: "hotel3" }
     
     steps:
     - name: Checkout code
@@ -39,7 +46,8 @@ jobs:
         # Docker imajı oluşturun ve push edin
         REGION="europe-west3"
         REPO_NAME="keepsty-docker"
-        IMAGE_PATH="europe-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/keepsty-backend:${{ github.sha }}"
+        SERVICE_NAME="${{ matrix.hotel.service_prefix }}-backend"
+        IMAGE_PATH="europe-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/$SERVICE_NAME:${{ github.sha }}"
         
         docker build -t $IMAGE_PATH .
         docker push $IMAGE_PATH
@@ -49,9 +57,17 @@ jobs:
       
     - name: Deploy to Cloud Run
       run: |
-        gcloud run deploy keepsty-backend \
+        HOTEL_NAME="${{ matrix.hotel.name }}"
+        DB_NAME="${{ matrix.hotel.db_name }}"
+        ADMIN_EMAIL="${{ matrix.hotel.admin_email }}"
+        SERVICE_NAME="${{ matrix.hotel.service_prefix }}-backend"
+        
+        echo "Deploying $SERVICE_NAME for hotel: $HOTEL_NAME, DB: $DB_NAME"
+        
+        gcloud run deploy $SERVICE_NAME \
           --image ${{ env.IMAGE_PATH }} \
           --region europe-west3 \
           --platform managed \
           --allow-unauthenticated \
+          --set-env-vars="HOTEL_NAME=$HOTEL_NAME,DB_NAME=$DB_NAME,ADMIN_EMAIL=$ADMIN_EMAIL" \
           --project ${{ secrets.GCP_PROJECT_ID }} 

@@ -6,12 +6,21 @@ const cors = require('cors');
 
 const app = express();
 
+// Otel adı ve veritabanı adını environment variable'lardan al (varsayılan değerler ile)
+const HOTEL_NAME = process.env.HOTEL_NAME || 'Default Hotel';
+const DB_NAME = process.env.DB_NAME || 'GreenP';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'nihat.saydam@icloud.com';
+
+console.log(`Starting server for hotel: ${HOTEL_NAME}`);
+console.log(`Using database: ${DB_NAME}`);
+console.log(`Admin email: ${ADMIN_EMAIL}`);
+
 // MongoDB Atlas bağlantısı
 mongoose
   .connect(
-    'mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/GreenP?retryWrites=true&w=majority&appName=GreenP'
+    `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority&appName=${DB_NAME}`
   )
-  .then(() => console.log('Connected to MongoDB Atlas GreenP Database!'))
+  .then(() => console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`))
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
 
 // Middleware
@@ -60,10 +69,11 @@ app.post('/save-cleaning-option', async (req, res) => {
 
     // E-posta içeriğini oluşturma
     const mailOptions = {
-      from: '"Housekeeping Uygulaması" <nihatsaydam13131@gmail.com>',
-      to: 'nihat.saydam@icloud.com',  // Bildirimi almak istediğiniz e-posta adresi
+      from: `"${HOTEL_NAME} Housekeeping" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,  // Bildirimi almak istediğiniz e-posta adresi
       subject: 'Yeni Temizlik Kaydı Oluşturuldu',
       text: `Yeni bir temizlik kaydı oluşturuldu.
+Otel: ${HOTEL_NAME}
 Kullanıcı: ${username}
 Oda: ${roomNumber}
 Temizlik Seçeneği: ${cleaningOption}
@@ -152,10 +162,11 @@ app.post('/save-cart', async (req, res) => {
 
     // E-posta içeriğini oluşturma
     const mailOptions = {
-      from: '"Cart Orders Uygulaması" <nihatsaydam13131@gmail.com>',
-      to: 'nihat.saydam@icloud.com',  // Bildirimi almak istediğiniz e-posta adresi
+      from: `"${HOTEL_NAME} Cart Orders" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,  // Bildirimi almak istediğiniz e-posta adresi
       subject: 'Yeni Sepet Siparişi Geldi',
       text: `Yeni bir sepet siparişi alındı.
+Otel: ${HOTEL_NAME}
 Oda: ${roomNumber}
 Kullanıcı: ${username}
 Ürünler: ${itemsString}
@@ -289,13 +300,14 @@ app.get('/cart-orders', async (req, res) => {
       if (!existingMessage) {
         // Bu oda için ilk mesaj, e-posta gönderimi yapılıyor.
         const mailOptions = {
-          from: '"Tech Admin" <nihatsaydam13131@gmail.com>',
-          to: 'nihat.saydam@icloud.com', // Bildirimi almak istenen e-posta adresi
+          from: `"${HOTEL_NAME} Tech Admin" <nihatsaydam13131@gmail.com>`,
+          to: ADMIN_EMAIL, // Bildirimi almak istenen e-posta adresi
           subject: `Yeni sohbet başlangıcı - Oda: ${roomNumber}`,
           text: `Yeni bir sohbet başladı.
-  Oda: ${roomNumber}
-  Kullanıcı: ${username}
-  Mesaj: ${message}`
+Otel: ${HOTEL_NAME}
+Oda: ${roomNumber}
+Kullanıcı: ${username}
+Mesaj: ${message}`
         };
   
         transporter.sendMail(mailOptions, (error, info) => {
@@ -479,11 +491,12 @@ app.post('/saveResponse', async (req, res) => {
 
     // E-posta bildirim içeriği
     const mailOptions = {
-      from: '"Concierge Notification" <your.email@gmail.com>',
-      to: 'nihat.saydam@icloud.com',  // Bildirimin gönderileceği e-posta adresi
+      from: `"${HOTEL_NAME} Concierge Notification" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,  // Bildirimin gönderileceği e-posta adresi
       subject: `Yeni Mesaj - Oda ${roomNumber}`,
       text: `Yeni mesaj:
       
+Otel: ${HOTEL_NAME}
 Oda: ${roomNumber}
 Kullanıcı: ${username}
 Gönderen: ${sender}
@@ -543,10 +556,11 @@ app.post('/saveBellboyRequest', async (req, res) => {
     await newRequest.save();
 
     const mailOptions = {
-      from: '"Bellboy Notification" <nihatsaydam13131@gmail.com>',
-      to: 'nihat.saydam@icloud.com',
+      from: `"${HOTEL_NAME} Bellboy Notification" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,
       subject: 'Yeni Bellboy İsteği Geldi',
       text: `Yeni Bellboy isteği:
+Otel: ${HOTEL_NAME}
 Oda: ${roomNumber}
 Siparişi veren: ${username}
 İstek Türü: ${clickType}
@@ -639,10 +653,14 @@ app.post('/saveLaundry', async (req, res) => {
 
     // E-posta gönderimi
     const mailOptions = {
-      from: '"Laundry Uygulaması" <nihatssaydam13131@gmail.com>',
-      to: 'nihat.saydam@icloud.com',  // Bildirim almak istediğiniz e-posta adresi
+      from: `"${HOTEL_NAME} Laundry Uygulaması" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,  // Bildirim almak istediğiniz e-posta adresi
       subject: 'Yeni Laundry Siparişi Geldi',
-      text: `Yeni bir laundry siparişi geldi. Oda: ${roomNumber}, Siparişi veren: ${newLaundry.username}. Detaylar için yönetim panelini kontrol edebilirsiniz.`,
+      text: `Yeni bir laundry siparişi geldi. 
+Otel: ${HOTEL_NAME}
+Oda: ${roomNumber}, 
+Siparişi veren: ${newLaundry.username}. 
+Detaylar için yönetim panelini kontrol edebilirsiniz.`,
     };
 
     transporter.sendMail(mailOptions, (error, info) => {
@@ -821,11 +839,12 @@ app.post('/saveComplain', async (req, res) => {
 
     // E-posta içeriği
     const mailOptions = {
-      from: '"Complain Notification" <nihatsaydam13131@gmail.com>',
-      to: 'nihat.saydam@icloud.com',
+      from: `"${HOTEL_NAME} Complain Notification" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,
       subject: `Yeni Şikayet - Oda ${roomNumber}`,
       text: `Yeni şikayet geldi:
       
+Otel: ${HOTEL_NAME}
 Oda: ${roomNumber}
 Kullanıcı: ${username}
 Mesaj: ${message}
@@ -931,11 +950,12 @@ app.post('/saveRoomservice', async (req, res) => {
 
     // E-posta gönderimi için mailOptions tanımlıyoruz.
     const mailOptions = {
-      from: '"Room Service Uygulaması" <nihatsaydam13131@gmail.com>',
-      to: ['nihat.saydam@icloud.com'],
+      from: `"${HOTEL_NAME} Room Service" <nihatsaydam13131@gmail.com>`,
+      to: [ADMIN_EMAIL],
       // Bildirimi almak istediğiniz e-posta adresi
       subject: 'Yeni Room Service Siparişi Geldi',
       text: `Yeni bir room service siparişi geldi.
+Otel: ${HOTEL_NAME}
 Oda: ${roomNumber}
 Siparişi veren: ${username || 'Bilinmiyor'}
 Ürünler: ${itemsString}
