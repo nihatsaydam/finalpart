@@ -29,19 +29,51 @@ jobs:
     - name: Setup Google Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       
+    - name: Enable required APIs
+      run: |
+        gcloud services enable artifactregistry.googleapis.com
+        gcloud services enable run.googleapis.com
+        gcloud services enable cloudbuild.googleapis.com
+        
+    - name: Create Artifact Registry repository if it doesn't exist
+      run: |
+        # Region'ı değişkenle saklayalım
+        REGION="us-central1"
+        REPO_NAME="keepsty-docker"
+        
+        # Repository var mı kontrol edelim, yoksa oluşturalım
+        if ! gcloud artifacts repositories describe $REPO_NAME --location=$REGION --quiet > /dev/null 2>&1; then
+          echo "Creating Artifact Registry repository $REPO_NAME in $REGION..."
+          gcloud artifacts repositories create $REPO_NAME \
+            --repository-format=docker \
+            --location=$REGION \
+            --description="Docker repository for Keepsty Backend"
+        else
+          echo "Artifact Registry repository $REPO_NAME already exists in $REGION."
+        fi
+        
+    - name: Configure Docker for Artifact Registry
+      run: |
+        # Authenticate Docker with Artifact Registry
+        gcloud auth configure-docker us-central1-docker.pkg.dev
+        
     - name: Build and push Docker image
       run: |
-        # Container Registry'de oturum açın
-        gcloud auth configure-docker
-        
         # Docker imajı oluşturun ve push edin
-        docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }} .
-        docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }}
+        REGION="us-central1"
+        REPO_NAME="keepsty-docker"
+        IMAGE_PATH="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/keepsty-backend:${{ github.sha }}"
+        
+        docker build -t $IMAGE_PATH .
+        docker push $IMAGE_PATH
+        
+        # İmaj yolunu çıktı olarak saklayalım
+        echo "IMAGE_PATH=$IMAGE_PATH" >> $GITHUB_ENV
       
     - name: Deploy to Cloud Run
       run: |
         gcloud run deploy keepsty-backend \
-          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }} \
+          --image ${{ env.IMAGE_PATH }} \
           --region us-central1 \
           --platform managed \
           --allow-unauthenticated \
