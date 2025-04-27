@@ -32,14 +32,14 @@ jobs:
     - name: Configure Docker for Artifact Registry
       run: |
         # Authenticate Docker with Artifact Registry
-        gcloud auth configure-docker us-central1-docker.pkg.dev
+        gcloud auth configure-docker europe-west3-docker.pkg.dev
         
     - name: Build and push Docker image
       run: |
         # Docker imajı oluşturun ve push edin
-        REGION="us-central1"
+        REGION="europe-west3"
         REPO_NAME="keepsty-docker"
-        IMAGE_PATH="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/keepsty-backend:${{ github.sha }}"
+        IMAGE_PATH="europe-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/keepsty-backend:${{ github.sha }}"
         
         docker build -t $IMAGE_PATH .
         docker push $IMAGE_PATH
@@ -51,7 +51,7 @@ jobs:
       run: |
         gcloud run deploy keepsty-backend \
           --image ${{ env.IMAGE_PATH }} \
-          --region us-central1 \
+          --region europe-west3 \
           --platform managed \
           --allow-unauthenticated \
           --project ${{ secrets.GCP_PROJECT_ID }} 
