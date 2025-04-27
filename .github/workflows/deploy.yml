@@ -12,9 +12,7 @@ jobs:
         hotel:
           - { name: "Hotel One", db_name: "GreenP", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel1" }
           - { name: "Hotel Two", db_name: "HotelTwo", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel2" }
-          # Aşağıdaki satırları kopyalayarak yeni oteller ekleyebilirsiniz
-          # - { name: "Hotel Three", db_name: "HotelThree", admin_email: "other.email@example.com", service_prefix: "hotel3" }
-    
+         
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
