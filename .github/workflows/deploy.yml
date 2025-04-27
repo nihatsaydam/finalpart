@@ -12,6 +12,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
       
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+    
+    - name: Install dependencies
+      run: npm install
+    
     - name: Google Auth
       id: auth
       uses: google-github-actions/auth@v1
@@ -21,10 +29,19 @@ jobs:
     - name: Setup Google Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       
+    - name: Build and push Docker image
+      run: |
+        # Container Registry'de oturum açın
+        gcloud auth configure-docker
+        
+        # Docker imajı oluşturun ve push edin
+        docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }} .
+        docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }}
+      
     - name: Deploy to Cloud Run
       run: |
         gcloud run deploy keepsty-backend \
-          --source . \
+          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/keepsty-backend:${{ github.sha }} \
           --region us-central1 \
           --platform managed \
           --allow-unauthenticated \
