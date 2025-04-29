@@ -1171,6 +1171,114 @@ app.post('/housekeeping-requests', async (req, res) => {
     }
 });
 
+/* ============================
+   SPA Orders (Spa Siparişleri)
+============================ */
+const spaOrderSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  roomNumber: { type: String, required: true },
+  spaItems: { type: Array, required: true },
+  totalPrice: { type: Number, required: true },
+  status: { 
+    type: String, 
+    enum: ['waiting', 'active', 'completed'], 
+    default: 'waiting' 
+  },
+  timestamp: { type: Date, default: Date.now }
+});
+const SpaOrder = mongoose.model('SpaOrder', spaOrderSchema, 'spaOrders');
+
+// SPA sipariş kaydetme endpoint'i
+app.post('/spa/order', async (req, res) => {
+  try {
+    const { username, roomNumber, spaItems, totalPrice } = req.body;
+    if (!username || !roomNumber || !spaItems || totalPrice === undefined) {
+      return res.status(400).json({ message: 'Eksik alanlar var.' });
+    }
+    
+    const newSpaOrder = new SpaOrder({ username, roomNumber, spaItems, totalPrice });
+    const savedOrder = await newSpaOrder.save();
+
+    // Spa ürünlerini string haline getir
+    const itemsString = spaItems
+      .map(item => `${item.name} (Miktar: ${item.quantity}, Fiyat: ${item.price})`)
+      .join(', ');
+
+    // E-posta içeriğini oluşturma
+    const mailOptions = {
+      from: `"${HOTEL_NAME} Spa Orders" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,
+      subject: 'Yeni Spa Siparişi Geldi',
+      text: `Yeni bir spa siparişi alındı.
+Otel: ${HOTEL_NAME}
+Oda: ${roomNumber}
+Kullanıcı: ${username}
+Ürünler: ${itemsString}
+Toplam Fiyat: ${totalPrice}₺
+Tarih: ${new Date().toLocaleString()}`
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error('E-posta gönderim hatası:', error);
+      } else {
+        console.log('E-posta gönderildi:', info.response);
+      }
+    });
+
+    res.status(201).json({ message: "Spa order saved", result: savedOrder });
+  } catch (error) {
+    console.error("Error saving spa order:", error);
+    res.status(500).json({ message: "Error saving spa order", error });
+  }
+});
+
+// SPA siparişlerini getirme endpoint'i
+app.get('/spa/orders', async (req, res) => {
+  try {
+    const { roomNumber, status } = req.query;
+    let query = {};
+    if (roomNumber) {
+      query.roomNumber = roomNumber;
+    }
+    if (status) {
+      query.status = status;
+    }
+    const orders = await SpaOrder.find(query);
+    res.json({ success: true, spaOrders: orders });
+  } catch (error) {
+    console.error("Spa orders getirme hatası:", error);
+    res.status(500).json({ message: "Spa orders getirilemedi", error });
+  }
+});
+
+// SPA siparişi durum güncelleme endpoint'i
+app.put('/spa/order/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    if (!['waiting', 'active', 'completed'].includes(status)) {
+      return res.status(400).json({ message: 'Geçersiz durum değeri' });
+    }
+    
+    const updatedOrder = await SpaOrder.findByIdAndUpdate(
+      id, 
+      { status }, 
+      { new: true }
+    );
+    
+    if (!updatedOrder) {
+      return res.status(404).json({ message: 'Sipariş bulunamadı' });
+    }
+    
+    res.json({ message: "Status updated", order: updatedOrder });
+  } catch (error) {
+    console.error("Spa order status updating error:", error);
+    res.status(500).json({ message: "Error updating spa order status", error });
+  }
+});
+
 // Ana sayfa endpoint'i (Opsiyonel)
 app.get('/', (req, res) => {
   res.send('Welcome to Keepsty Backend API!');
