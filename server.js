@@ -1179,6 +1179,8 @@ const spaOrderSchema = new mongoose.Schema({
   roomNumber: { type: String, required: true },
   spaItems: { type: Array, required: true },
   totalPrice: { type: Number, required: true },
+  serviceTime: { type: Number, required: true },         // Hizmet süresi (dakika olarak: 30, 60, 120, 240)
+  serviceTimeLabel: { type: String, required: true },    // Hizmet süresi etiketi (örn: "In 30 minutes")
   status: { 
     type: String, 
     enum: ['waiting', 'active', 'completed'], 
@@ -1191,12 +1193,19 @@ const SpaOrder = mongoose.model('SpaOrder', spaOrderSchema, 'spaOrders');
 // SPA sipariş kaydetme endpoint'i
 app.post('/spa/order', async (req, res) => {
   try {
-    const { username, roomNumber, spaItems, totalPrice } = req.body;
-    if (!username || !roomNumber || !spaItems || totalPrice === undefined) {
+    const { username, roomNumber, spaItems, totalPrice, serviceTime, serviceTimeLabel } = req.body;
+    if (!username || !roomNumber || !spaItems || totalPrice === undefined || !serviceTime || !serviceTimeLabel) {
       return res.status(400).json({ message: 'Eksik alanlar var.' });
     }
     
-    const newSpaOrder = new SpaOrder({ username, roomNumber, spaItems, totalPrice });
+    const newSpaOrder = new SpaOrder({ 
+      username, 
+      roomNumber, 
+      spaItems, 
+      totalPrice,
+      serviceTime,
+      serviceTimeLabel
+    });
     const savedOrder = await newSpaOrder.save();
 
     // Spa ürünlerini string haline getir
@@ -1215,6 +1224,7 @@ Oda: ${roomNumber}
 Kullanıcı: ${username}
 Ürünler: ${itemsString}
 Toplam Fiyat: ${totalPrice}₺
+Seçilen Zaman: ${serviceTimeLabel} (${serviceTime} dakika)
 Tarih: ${new Date().toLocaleString()}`
     };
 
