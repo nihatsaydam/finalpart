@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         hotel:
-          - { name: "Hotel One", db_name: "GreenP", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel1" }
+          - { name: "Hotel One", db_name: "GreenP", admin_email: "duzdikermertcan@gmail.com", service_prefix: "hotel1" }
           - { name: "Hotel Two", db_name: "HotelTwo", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel2" }
          
     steps:
