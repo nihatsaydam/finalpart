@@ -409,117 +409,139 @@ Mesaj: ${message}`
   });
   
 
-// Mongoose Chat Şeması (Concierge Koleksiyonu)
-const chatSchema = new mongoose.Schema({
-  roomNumber: { type: String, required: true },
-  username: { type: String, required: true, default: 'Unknown' },
-  message: { type: String, required: true },
-  status: { type: String, enum: ['waiting', 'active', 'resolved'], default: 'waiting' },
-  sender: { type: String, enum: ['user', 'bot'], required: true },
-  timestamp: { type: Date, default: Date.now }
+  const chatSchema = new mongoose.Schema({
+    roomNumber: { type: String, required: true },
+    username: { type: String, required: true, default: 'Unknown' },
+    message: { type: String, required: true },
+    status: { type: String, enum: ['waiting', 'active', 'resolved'], default: 'waiting' },
+    sender: { type: String, enum: ['user', 'bot'], required: true },
+    timestamp: { type: Date, default: Date.now }
+  }, { collection: 'Concierge' });
+  const Chat = mongoose.model('Chat', chatSchema);
   
-});
-const Chat = mongoose.model('Chat', chatSchema, 'Concierge');
-// Talep durumunu güncelleme endpoint'i
-app.put('/updateRequestStatus/:roomNumber', async (req, res) => {
-  try {
-    const { status } = req.body;
-    const { roomNumber } = req.params;
 
-    if (!['waiting', 'active', 'resolved'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status.' });
+  
+  // Health check
+  app.get('/status', (req, res) => res.json({ status: 'ok' }));
+  
+  // ====== Request Endpoints ======
+  // GET /requests - list all or filtered requests
+  app.get('/requests', async (req, res) => {
+    try {
+      const filter = {};
+      if (req.query.department) filter.department = req.query.department;
+      if (req.query.status) filter.status = req.query.status;
+      const data = await Request.find(filter);
+      res.json(data);
+    } catch (err) {
+      console.error('Error fetching requests:', err);
+      res.status(500).json({ success: false, message: 'Error fetching requests.' });
     }
-
-    await Chat.updateMany({ roomNumber }, { status });
-
-    res.status(200).json({ success: true, message: 'Status updated successfully.' });
-  } catch (error) {
-    console.error('Error updating status:', error);
-    res.status(500).json({ success: false, message: 'Error updating status.' });
-  }
-});
-
-// GET /getChatLogs: Tüm oda numaralarına göre gruplandırılmış sohbet kayıtlarını döndürür
-app.get('/getChatLogs', async (req, res) => {
-  try {
-    const groupedChats = await Chat.aggregate([
-      {
-        $group: {
-          _id: "$roomNumber",
-          messages: { $push: "$$ROOT" }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-    res.status(200).json(groupedChats);
-  } catch (error) {
-    console.error('Error fetching chat logs:', error);
-    res.status(500).json({ success: false, message: 'Error fetching chat logs.' });
-  }
-});
-
-// GET /getChatLogsByRoom/:roomNumber: Belirli bir oda numarasına ait sohbet kayıtlarını döndürür
-app.get('/getChatLogsByRoom/:roomNumber', async (req, res) => {
-  try {
-    const roomNumber = req.params.roomNumber;
-    if (!roomNumber) {
-      return res.status(400).json({ success: false, message: 'Room number is required.' });
+  });
+  
+  // GET /requests/:id - detail
+  app.get('/requests/:id', async (req, res) => {
+    try {
+      const doc = await Request.findById(req.params.id);
+      if (!doc) return res.status(404).json({ success: false, message: 'Request not found.' });
+      res.json(doc);
+    } catch (err) {
+      console.error('Error fetching request:', err);
+      res.status(500).json({ success: false, message: 'Error fetching request.' });
     }
-    const chats = await Chat.find({ roomNumber }).sort({ timestamp: 1 });
-    if (chats.length === 0) {
-      return res.status(404).json({ success: false, message: 'No chats found for this room.' });
+  });
+  
+  // PUT /requests/:id/update - update status and other fields
+  app.put('/requests/:id/update', async (req, res) => {
+    try {
+      const updates = { ...req.body, updatedAt: new Date() };
+      const updated = await Request.findByIdAndUpdate(req.params.id, updates, { new: true });
+      if (!updated) return res.status(404).json({ success: false, message: 'Request not found.' });
+      res.json({ success: true, message: 'Request updated successfully.', data: updated });
+    } catch (err) {
+      console.error('Error updating request:', err);
+      res.status(500).json({ success: false, message: 'Error updating request.' });
     }
-    res.status(200).json(chats);
-  } catch (error) {
-    console.error(`Error fetching chats for room ${req.params.roomNumber}:`, error);
-    res.status(500).json({ success: false, message: 'Error fetching chats for the room.' });
-  }
-});
-
-
-// POST /saveResponse: Yeni bir sohbet mesajı kaydeder ve ardından e-posta bildirimi gönderir
-app.post('/saveResponse', async (req, res) => {
-  try {
-    const { roomNumber, username, message, sender } = req.body;
-    if (!roomNumber || !username || !message || !sender) {
-      return res.status(400).json({ success: false, message: 'Missing required fields.' });
-    }
-    
-    // Yeni sohbet kaydını oluştur ve kaydet
-    const chat = new Chat({ roomNumber, username, message, sender });
-    await chat.save();
-
-    // E-posta bildirim içeriği
-    const mailOptions = {
-      from: `"${HOTEL_NAME} Concierge Notification" <nihatsaydam13131@gmail.com>`,
-      to: ADMIN_EMAIL,  // Bildirimin gönderileceği e-posta adresi
-      subject: `Yeni Mesaj - Oda ${roomNumber}`,
-      text: `Yeni mesaj:
-      
-Otel: ${HOTEL_NAME}
-Oda: ${roomNumber}
-Kullanıcı: ${username}
-Gönderen: ${sender}
-Mesaj: ${message}
-
-Tarih: ${new Date().toLocaleString()}`
-    };
-
-    // E-posta gönderimini gerçekleştir
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error('Error sending email:', error);
-      } else {
-        console.log('Email sent:', info.response);
+  });
+  
+  // ====== Concierge Chat Endpoints ======
+  // PUT /updateRequestStatus/:roomNumber - update chat status
+  app.put('/updateRequestStatus/:roomNumber', async (req, res) => {
+    try {
+      const { status } = req.body;
+      const { roomNumber } = req.params;
+      if (!['waiting', 'active', 'resolved'].includes(status)) {
+        return res.status(400).json({ success: false, message: 'Invalid status.' });
       }
-    });
-
-    res.status(200).json({ success: true, message: 'Message saved and email sent!', chat });
-  } catch (error) {
-    console.error('Error saving message:', error);
-    res.status(500).json({ success: false, message: 'Error saving message.' });
-  }
-});
+      await Chat.updateMany({ roomNumber }, { status });
+      res.json({ success: true, message: 'Chat status updated.' });
+    } catch (error) {
+      console.error('Error updating chat status:', error);
+      res.status(500).json({ success: false, message: 'Error updating status.' });
+    }
+  });
+  
+  // GET /getChatLogs - all grouped by room
+  app.get('/getChatLogs', async (req, res) => {
+    try {
+      const grouped = await Chat.aggregate([
+        { $group: { _id: '$roomNumber', messages: { $push: '$$ROOT' } } },
+        { $sort: { _id: 1 } }
+      ]);
+      res.json(grouped);
+    } catch (error) {
+      console.error('Error fetching chat logs:', error);
+      res.status(500).json({ success: false, message: 'Error fetching chat logs.' });
+    }
+  });
+  
+  // GET /getChatLogsByRoom/:roomNumber - chats for a room
+  app.get('/getChatLogsByRoom/:roomNumber', async (req, res) => {
+    try {
+      const {
+        roomNumber
+      } = req.params;
+      if (!roomNumber) return res.status(400).json({ success: false, message: 'Room number required.' });
+      const chats = await Chat.find({ roomNumber }).sort({ timestamp: 1 });
+      if (!chats.length) return res.status(404).json({ success: false, message: 'No chats for this room.' });
+      res.json(chats);
+    } catch (error) {
+      console.error('Error fetching chats by room:', error);
+      res.status(500).json({ success: false, message: 'Error fetching chats.' });
+    }
+  });
+  
+  // POST /saveResponse - save new chat and send email
+  app.post('/saveResponse', async (req, res) => {
+    try {
+      const {
+        roomNumber,
+        username,
+        message,
+        sender
+      } = req.body;
+      if (!roomNumber || !username || !message || !sender) {
+        return res.status(400).json({ success: false, message: 'Missing fields.' });
+      }
+      const chat = new Chat({ roomNumber, username, message, sender });
+      await chat.save();
+  
+      const mailOptions = {
+        from: `"${HOTEL_NAME} Concierge" <${SMTP_USER}>`,
+        to: ADMIN_EMAIL,
+        subject: `Yeni Mesaj - Oda ${roomNumber}`,
+        text: `Yeni mesaj:\n\nOtel: ${HOTEL_NAME}\nOda: ${roomNumber}\nKullanıcı: ${username}\nGönderen: ${sender}\nMesaj: ${message}\nTarih: ${new Date().toLocaleString()}`
+      };
+      transporter.sendMail(mailOptions, (err, info) => {
+        if (err) console.error('Email error:', err); else console.log('Email sent:', info.response);
+      });
+  
+      res.json({ success: true, message: 'Message saved and email sent!', chat });
+    } catch (error) {
+      console.error('Error saving message:', error);
+      res.status(500).json({ success: false, message: 'Error saving message.' });
+    }
+  });
 
 // Sunucuya bağlanma (örneğin, port 3000'de)
 
