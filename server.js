@@ -410,15 +410,15 @@ Mesaj: ${message}`
   
 
   const chatSchema = new mongoose.Schema({
-    roomNumber: { type: String, required: true },
-    username: { type: String, required: true, default: 'Unknown' },
-    message: { type: String, required: true },
-    status: { type: String, enum: ['waiting', 'active', 'resolved'], default: 'waiting' },
-    sender: { type: String, enum: ['user', 'bot'], required: true },
-    timestamp: { type: Date, default: Date.now }
+    roomNumber:  { type: String, required: true },
+    username:    { type: String, required: true, default: 'Unknown' },
+    message:     { type: String, required: true },
+    status:      { type: String, enum: ['waiting','active','resolved'], default: 'waiting' },
+    sender:      { type: String, enum: ['user','bot'], required: true },
+    timestamp:   { type: Date, default: Date.now }
   }, { collection: 'Concierge' });
-  const Chat = mongoose.model('Chat', chatSchema);
   
+  const Chat = mongoose.model('Chat', chatSchema);
 
   
   // Health check
@@ -464,22 +464,21 @@ Mesaj: ${message}`
     }
   });
   
-  // ====== Concierge Chat Endpoints ======
-  // PUT /updateRequestStatus/:roomNumber - update chat status
   app.put('/updateRequestStatus/:roomNumber', async (req, res) => {
     try {
-      const { status } = req.body;
       const { roomNumber } = req.params;
-      if (!['waiting', 'active', 'resolved'].includes(status)) {
+      const { status } = req.body;
+      if (!['waiting','active','resolved'].includes(status)) {
         return res.status(400).json({ success: false, message: 'Invalid status.' });
       }
       await Chat.updateMany({ roomNumber }, { status });
-      res.json({ success: true, message: 'Chat status updated.' });
-    } catch (error) {
-      console.error('Error updating chat status:', error);
+      res.json({ success: true, message: 'All chats in room updated.' });
+    } catch (err) {
+      console.error('Error updating chat status:', err);
       res.status(500).json({ success: false, message: 'Error updating status.' });
     }
   });
+  
   
   // GET /getChatLogs - all grouped by room
   app.get('/getChatLogs', async (req, res) => {
@@ -510,7 +509,41 @@ Mesaj: ${message}`
       res.status(500).json({ success: false, message: 'Error fetching chats.' });
     }
   });
-  
+  app.put('/acceptRequest/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await Chat.findByIdAndUpdate(
+        id,
+        { status: 'active' },
+        { new: true }
+      );
+      if (!updated) {
+        return res.status(404).json({ success: false, message: 'Message not found.' });
+      }
+      res.json({ success: true, message: 'Request activated.', data: updated });
+    } catch (err) {
+      console.error('Error activating request:', err);
+      res.status(500).json({ success: false, message: 'Error activating request.' });
+    }
+  });
+  app.put('/completeRequest/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await Chat.findByIdAndUpdate(
+        id,
+        { status: 'resolved' },
+        { new: true }
+      );
+      if (!updated) {
+        return res.status(404).json({ success: false, message: 'Message not found.' });
+      }
+      res.json({ success: true, message: 'Request completed.', data: updated });
+    } catch (err) {
+      console.error('Error completing request:', err);
+      res.status(500).json({ success: false, message: 'Error completing request.' });
+    }
+  });
+    
   // POST /saveResponse - save new chat and send email
   app.post('/saveResponse', async (req, res) => {
     try {
