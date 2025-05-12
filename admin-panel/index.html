@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Otel Menü Yönetimi</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+      <a class="navbar-brand" href="#">
+        <i class="fas fa-utensils me-2"></i> 
+        <span id="hotel-name">Otel Menü Yönetimi</span>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item">
+            <span class="nav-link" id="db-name"></span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="container mt-4">
+    <div class="row">
+      <!-- Sidebar -->
+      <div class="col-md-3">
+        <div class="card mb-4">
+          <div class="card-header">
+            <h5 class="mb-0">Diller</h5>
+          </div>
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <select id="language-select" class="form-select">
+                <option value="en">İngilizce (en)</option>
+                <option value="tr">Türkçe (tr)</option>
+                <option value="fr">Fransızca (fr)</option>
+                <option value="ar">Arapça (ar)</option>
+              </select>
+              <button id="load-language-btn" class="btn btn-sm btn-primary ms-2">
+                <i class="fas fa-sync-alt"></i>
+              </button>
+            </div>
+            <button id="create-menu-btn" class="btn btn-success w-100">
+              <i class="fas fa-plus me-2"></i> Yeni Menü Oluştur
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Eylemler</h5>
+          </div>
+          <div class="card-body">
+            <button id="add-category-btn" class="btn btn-info w-100 mb-2">
+              <i class="fas fa-folder-plus me-2"></i> Kategori Ekle
+            </button>
+            <button id="save-menu-btn" class="btn btn-primary w-100 mb-2">
+              <i class="fas fa-save me-2"></i> Değişiklikleri Kaydet
+            </button>
+            <button id="delete-menu-btn" class="btn btn-danger w-100">
+              <i class="fas fa-trash me-2"></i> Menüyü Sil
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Editor Area -->
+      <div class="col-md-9">
+        <div class="alert alert-info" id="info-alert">
+          <i class="fas fa-info-circle me-2"></i> Soldaki menüden bir dil seçin veya yeni bir menü oluşturun.
+        </div>
+        
+        <div id="menu-editor" class="d-none">
+          <h3 class="mb-3" id="editor-title">Menü Düzenle</h3>
+          
+          <div id="categories-container">
+            <!-- Categories will be added here dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Category Template (Hidden) -->
+  <template id="category-template">
+    <div class="card mb-4 category-card">
+      <div class="card-header bg-light d-flex align-items-center">
+        <div class="flex-grow-1">
+          <div class="row">
+            <div class="col-md-6">
+              <input type="text" class="form-control category-name" placeholder="Kategori Adı" required>
+            </div>
+            <div class="col-md-6">
+              <input type="text" class="form-control category-key" placeholder="Kategori Anahtarı" required>
+              <small class="form-text text-muted">Boşluk yerine tire kullanın, örn: "sicak-icecekler"</small>
+            </div>
+          </div>
+          <div class="row mt-2">
+            <div class="col-12">
+              <input type="text" class="form-control category-image" placeholder="Kategori Resim URL'si (isteğe bağlı)">
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-danger ms-2 remove-category-btn">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="items-container">
+          <!-- Items will be added here dynamically -->
+        </div>
+        <button class="btn btn-success add-item-btn mt-3">
+          <i class="fas fa-plus me-2"></i> Ürün Ekle
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Item Template (Hidden) -->
+  <template id="item-template">
+    <div class="card mb-3 item-card">
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="mb-2">
+              <label class="form-label">Ürün Adı</label>
+              <input type="text" class="form-control item-name" placeholder="Ürün Adı" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Açıklama</label>
+              <textarea class="form-control item-description" placeholder="Ürün açıklaması"></textarea>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="mb-2">
+              <label class="form-label">Fiyat</label>
+              <input type="text" class="form-control item-price" placeholder="Örn: 50 TL" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Ürün Resmi URL</label>
+              <input type="text" class="form-control item-image" placeholder="Resim URL'si (isteğe bağlı)">
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-danger mt-2 remove-item-btn">
+          <i class="fas fa-trash me-1"></i> Ürünü Sil
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Bootstrap JS Bundle with Popper -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <!-- Custom JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html> 
