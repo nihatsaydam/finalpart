@@ -39,7 +39,7 @@ jobs:
         # Authenticate Docker with Artifact Registry
         gcloud auth configure-docker europe-west3-docker.pkg.dev
         
-    - name: Build and push Docker image
+    - name: Build and push Backend Docker image
       run: |
         # Docker imajı oluşturun ve push edin
         REGION="europe-west3"
@@ -51,9 +51,9 @@ jobs:
         docker push $IMAGE_PATH
         
         # İmaj yolunu çıktı olarak saklayalım
-        echo "IMAGE_PATH=$IMAGE_PATH" >> $GITHUB_ENV
+        echo "BACKEND_IMAGE_PATH=$IMAGE_PATH" >> $GITHUB_ENV
       
-    - name: Deploy to Cloud Run
+    - name: Deploy Backend to Cloud Run
       run: |
         HOTEL_NAME="${{ matrix.hotel.name }}"
         DB_NAME="${{ matrix.hotel.db_name }}"
@@ -63,9 +63,52 @@ jobs:
         echo "Deploying $SERVICE_NAME for hotel: $HOTEL_NAME, DB: $DB_NAME"
         
         gcloud run deploy $SERVICE_NAME \
-          --image ${{ env.IMAGE_PATH }} \
+          --image ${{ env.BACKEND_IMAGE_PATH }} \
           --region europe-west3 \
           --platform managed \
           --allow-unauthenticated \
           --set-env-vars="HOTEL_NAME=$HOTEL_NAME,DB_NAME=$DB_NAME,ADMIN_EMAIL=$ADMIN_EMAIL" \
+          --project ${{ secrets.GCP_PROJECT_ID }}
+          
+    - name: Build and push Admin Panel Docker image
+      run: |
+        # Admin Panel için Dockerfile oluştur
+        cat > Dockerfile.admin << EOF
+        FROM node:16-alpine
+        WORKDIR /app
+        COPY admin-panel/ ./admin-panel/
+        COPY admin-menu.js ./
+        COPY package.json ./
+        RUN npm install
+        CMD ["node", "admin-menu.js"]
+        EXPOSE 8081
+        EOF
+        
+        # Docker imajı oluşturun ve push edin
+        REGION="europe-west3"
+        REPO_NAME="keepsty-docker"
+        SERVICE_NAME="${{ matrix.hotel.service_prefix }}-admin"
+        IMAGE_PATH="europe-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPO_NAME/$SERVICE_NAME:${{ github.sha }}"
+        
+        docker build -t $IMAGE_PATH -f Dockerfile.admin .
+        docker push $IMAGE_PATH
+        
+        # İmaj yolunu çıktı olarak saklayalım
+        echo "ADMIN_IMAGE_PATH=$IMAGE_PATH" >> $GITHUB_ENV
+      
+    - name: Deploy Admin Panel to Cloud Run
+      run: |
+        HOTEL_NAME="${{ matrix.hotel.name }}"
+        DB_NAME="${{ matrix.hotel.db_name }}"
+        ADMIN_EMAIL="${{ matrix.hotel.admin_email }}"
+        SERVICE_NAME="${{ matrix.hotel.service_prefix }}-admin"
+        
+        echo "Deploying Admin Panel $SERVICE_NAME for hotel: $HOTEL_NAME, DB: $DB_NAME"
+        
+        gcloud run deploy $SERVICE_NAME \
+          --image ${{ env.ADMIN_IMAGE_PATH }} \
+          --region europe-west3 \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars="HOTEL_NAME=$HOTEL_NAME,DB_NAME=$DB_NAME,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PORT=8081" \
           --project ${{ secrets.GCP_PROJECT_ID }} 

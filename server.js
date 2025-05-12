@@ -467,7 +467,7 @@ Mesaj: ${message}`
     }
   });
   
-  // Tek mesajı “active” yap
+  // Tek mesajı "active" yap
   app.put('/acceptRequest/:id', async (req, res) => {
     try {
       const updated = await Chat.findByIdAndUpdate(
@@ -483,7 +483,7 @@ Mesaj: ${message}`
     }
   });
   
-  // Tek mesajı “completed” yap
+  // Tek mesajı "completed" yap
   app.put('/completeRequest/:id', async (req, res) => {
     try {
       const updated = await Chat.findByIdAndUpdate(
@@ -960,6 +960,114 @@ app.put('/updateStatusToCompleted/:id', async (req, res) => {
   } catch (err) {
     console.error('Error updating status:', err.message);
     res.status(500).json({ success: false, message: 'Error updating status.' });
+  }
+});
+
+// Menu Schema - Added for MongoDB integration of menu data
+const menuItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: String, required: true },
+  description: { type: String },
+  image: { type: String }
+});
+
+const menuCategorySchema = new mongoose.Schema({
+  key: { type: String, required: true },
+  name: { type: String, required: true },
+  image: { type: String },
+  items: [menuItemSchema]
+});
+
+const menuSchema = new mongoose.Schema({
+  language: { type: String, required: true }, // 'en', 'tr', 'fr', 'ar'
+  menu: [menuCategorySchema]
+});
+
+const Menu = mongoose.model('Menu', menuSchema, 'menu');
+
+// Get menu data endpoint - Returns menu based on language parameter
+app.get('/api/menu/:language', async (req, res) => {
+  try {
+    const { language } = req.params;
+    
+    // Valid language codes
+    const validLanguages = ['en', 'tr', 'fr', 'ar'];
+    
+    // Validate language parameter
+    if (!validLanguages.includes(language)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid language code. Use one of: en, tr, fr, ar"
+      });
+    }
+    
+    // Find menu by language
+    const menuData = await Menu.findOne({ language });
+    
+    // If no menu found for this language, try English as fallback
+    if (!menuData && language !== 'en') {
+      const fallbackMenu = await Menu.findOne({ language: 'en' });
+      if (fallbackMenu) {
+        return res.status(200).json(fallbackMenu);
+      }
+      return res.status(404).json({
+        success: false,
+        message: `No menu found for language: ${language} and no fallback available`
+      });
+    }
+    
+    // Return the menu data
+    res.status(200).json(menuData || { menu: [] });
+  } catch (error) {
+    console.error("Error fetching menu data:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching menu data"
+    });
+  }
+});
+
+// Add or update menu data endpoint
+app.post('/api/menu', async (req, res) => {
+  try {
+    const { language, menu } = req.body;
+    
+    // Validate input
+    if (!language || !menu || !Array.isArray(menu)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid menu data format. Required: language and menu array"
+      });
+    }
+    
+    // Check if menu for this language already exists
+    const existingMenu = await Menu.findOne({ language });
+    
+    let result;
+    if (existingMenu) {
+      // Update existing menu
+      result = await Menu.findOneAndUpdate(
+        { language },
+        { menu },
+        { new: true }
+      );
+    } else {
+      // Create new menu
+      const newMenu = new Menu({ language, menu });
+      result = await newMenu.save();
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `Menu for ${language} successfully ${existingMenu ? 'updated' : 'created'}`,
+      data: result
+    });
+  } catch (error) {
+    console.error("Error saving menu data:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Error saving menu data"
+    });
   }
 });
 

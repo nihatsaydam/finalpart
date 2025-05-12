@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "populate-menu-en": "node populate-menu-data.js",
+    "populate-all-menus": "node populate-menu-data-all-languages.js"
   },
   "engines": {
     "node": ">=16.0.0"
