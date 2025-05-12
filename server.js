@@ -35,8 +35,8 @@ const transporter = nodemailer.createTransport({
   port: 465,
   secure: true, // 465 için true, 587 için false
   auth: {
-    user: 'nihatsaydam13131@gmail.com',
-    pass: 'jgmp pons oxpc saxl'
+    user: 'keepstyservice@gmail.com',
+    pass: 'zxtl ddfk kcot ebki'
   }
 });
 const housekeepingCleanSchema = new mongoose.Schema({
