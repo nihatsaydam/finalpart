@@ -467,7 +467,7 @@ Mesaj: ${message}`
     }
   });
   
-  // Tek mesajı “active” yap
+  // Tek mesajı "active" yap
   app.put('/acceptRequest/:id', async (req, res) => {
     try {
       const updated = await Chat.findByIdAndUpdate(
@@ -483,7 +483,7 @@ Mesaj: ${message}`
     }
   });
   
-  // Tek mesajı “completed” yap
+  // Tek mesajı "completed" yap
   app.put('/completeRequest/:id', async (req, res) => {
     try {
       const updated = await Chat.findByIdAndUpdate(
@@ -1340,6 +1340,135 @@ app.put('/spa/order/:id/status', async (req, res) => {
   } catch (error) {
     console.error("Spa order status updating error:", error);
     res.status(500).json({ message: "Error updating spa order status", error });
+  }
+});
+
+/* ============================
+   Access Code Feature
+============================ */
+// Misafir Erişim Kodu Modeli
+const accessCodeSchema = new mongoose.Schema({
+  code: { type: String, required: true, unique: true },
+  room: { type: String, required: true },
+  validUntil: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const AccessCode = mongoose.model('AccessCode', accessCodeSchema, 'GuestAccessCodes');
+
+// API Routes
+// 1. Kod Doğrulama
+app.post('/api/validate-code', async (req, res) => {
+  try {
+    const { code } = req.body;
+    const accessCode = await AccessCode.findOne({ code });
+    
+    if (!accessCode || new Date() > new Date(accessCode.validUntil)) {
+      console.log(`Geçersiz veya süresi dolmuş kod kullanım denemesi: ${code}`);
+      return res.json({ valid: false });
+    }
+    
+    console.log(`Başarılı kod kullanımı: ${code}, Oda: ${accessCode.room}`);
+    return res.json({ 
+      valid: true, 
+      roomNumber: accessCode.room 
+    });
+  } catch (error) {
+    console.error(`Kod doğrulama hatası:`, error);
+    res.status(500).json({ error: 'Sunucu hatası' });
+  }
+});
+
+// 2. Yeni Kod Oluşturma
+app.post('/api/generate-code', async (req, res) => {
+  try {
+    const { room, validDays } = req.body;
+    
+    // 6 basamaklı rastgele kod oluştur
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Son geçerlilik tarihi
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + parseInt(validDays || 1));
+    
+    // Yeni kodu veritabanına kaydet
+    const newCode = new AccessCode({ 
+      code, 
+      room, 
+      validUntil
+    });
+    await newCode.save();
+    
+    console.log(`Yeni misafir kodu oluşturuldu: ${code}, Oda: ${room}, Otel: ${HOTEL_NAME}`);
+    
+    // E-posta bildirimi
+    const mailOptions = {
+      from: `"${HOTEL_NAME} Misafir Erişim Kodu" <nihatsaydam13131@gmail.com>`,
+      to: ADMIN_EMAIL,
+      subject: `Yeni Misafir Erişim Kodu Oluşturuldu - ${HOTEL_NAME}`,
+      text: `Yeni bir misafir erişim kodu oluşturuldu:
+      
+Otel: ${HOTEL_NAME}
+Oda: ${room}
+Kod: ${code}
+Geçerlilik: ${validUntil.toLocaleString()}
+`
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error('E-posta gönderim hatası:', error);
+      } else {
+        console.log('E-posta gönderildi:', info.response);
+      }
+    });
+    
+    res.json({ 
+      success: true,
+      code, 
+      room, 
+      validUntil,
+      hotel: HOTEL_NAME 
+    });
+  } catch (error) {
+    console.error(`Kod oluşturma hatası:`, error);
+    res.status(500).json({ error: 'Kod oluşturulurken hata oluştu' });
+  }
+});
+
+// 3. Tüm Aktif Kodları Listele
+app.get('/api/list-codes', async (req, res) => {
+  try {
+    const now = new Date();
+    const codes = await AccessCode.find({ 
+      validUntil: { $gt: now }
+    }).sort({ createdAt: -1 });
+    
+    console.log(`${codes.length} aktif misafir kodu listelendi (${HOTEL_NAME})`);
+    res.json(codes);
+  } catch (error) {
+    console.error(`Kod listeleme hatası:`, error);
+    res.status(500).json({ error: 'Kodlar listelenirken hata oluştu' });
+  }
+});
+
+// 4. Kod Silme
+app.delete('/api/delete-code/:code', async (req, res) => {
+  try {
+    const result = await AccessCode.deleteOne({ 
+      code: req.params.code
+    });
+    
+    if (result.deletedCount > 0) {
+      console.log(`Misafir kodu silindi: ${req.params.code}`);
+      res.json({ success: true });
+    } else {
+      console.log(`Silinecek kod bulunamadı: ${req.params.code}`);
+      res.status(404).json({ success: false, error: 'Kod bulunamadı' });
+    }
+  } catch (error) {
+    console.error(`Kod silme hatası:`, error);
+    res.status(500).json({ error: 'Kod silinirken hata oluştu' });
   }
 });
 
