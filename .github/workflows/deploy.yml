@@ -12,7 +12,7 @@ jobs:
         hotel:
           - { name: "Hotel One", db_name: "GreenP", admin_email: "tarikziya.09@icloud.com", service_prefix: "hotel1" }
           - { name: "Hotel Two", db_name: "HotelTwo", admin_email: "nihat.saydam@icloud.com", service_prefix: "hotel2" }
-          - { name: "Green Prusa", db_name: "greenPrusaHotel", admin_email: "rezervasyon@greenprusa.com", service_prefix: "GreenPrusa" }
+          - { name: "Green Prusa", db_name: "GreenPrusaHotel", admin_email: "rezervasyon@greenprusa.com", service_prefix: "greenprusa" }
          
     steps:
     - name: Checkout code
