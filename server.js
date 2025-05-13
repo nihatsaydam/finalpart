@@ -1382,14 +1382,27 @@ app.post('/api/validate-code', async (req, res) => {
 // 2. Yeni Kod Oluşturma
 app.post('/api/generate-code', async (req, res) => {
   try {
-    const { room, validDays } = req.body;
+    const { room, validDays, validHours } = req.body;
+    
+    if (!room) {
+      return res.status(400).json({ success: false, error: 'Oda numarası gerekli' });
+    }
     
     // 6 basamaklı rastgele kod oluştur
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Son geçerlilik tarihi
+    // Son geçerlilik tarihi hesaplama
     const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + parseInt(validDays || 1));
+    
+    // Gün veya saat olarak geçerlilik süresi belirleme
+    if (validHours && !isNaN(validHours)) {
+      // Saat olarak geçerlilik
+      validUntil.setHours(validUntil.getHours() + parseInt(validHours));
+    } else {
+      // Gün olarak geçerlilik (varsayılan 1 gün)
+      const days = (validDays && !isNaN(validDays)) ? parseInt(validDays) : 1;
+      validUntil.setDate(validUntil.getDate() + days);
+    }
     
     // Yeni kodu veritabanına kaydet
     const newCode = new AccessCode({ 
@@ -1411,7 +1424,8 @@ app.post('/api/generate-code', async (req, res) => {
 Otel: ${HOTEL_NAME}
 Oda: ${room}
 Kod: ${code}
-Geçerlilik: ${validUntil.toLocaleString()}
+Oluşturulma: ${new Date().toLocaleString()}
+Geçerlilik Sonu: ${validUntil.toLocaleString()}
 `
     };
 
@@ -1427,7 +1441,11 @@ Geçerlilik: ${validUntil.toLocaleString()}
       success: true,
       code, 
       room, 
+      createdAt: new Date(),
       validUntil,
+      expiresIn: validHours 
+        ? `${validHours} saat` 
+        : `${validDays || 1} gün`,
       hotel: HOTEL_NAME 
     });
   } catch (error) {
