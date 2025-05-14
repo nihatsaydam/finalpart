@@ -1653,7 +1653,7 @@ app.get('/', (req, res) => {
 });
 
 // Uygulama başlangıcında admin kullanıcısı oluştur
-// createInitialAdmin();
+ createInitialAdmin();
 
 /* ============================
    User Management API Endpoints
