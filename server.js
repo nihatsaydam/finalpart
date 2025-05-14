@@ -20,7 +20,11 @@ mongoose
   .connect(
     `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority&appName=${DB_NAME}`
   )
-  .then(() => console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`))
+  .then(() => {
+    console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
+    // Bağlantı başarılı olduktan sonra admin oluşturma işlemini yap
+    createInitialAdmin();
+  })
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
 
 // Middleware
@@ -36,7 +40,7 @@ const MongoStore = require('connect-mongo');
 
 // Session ayarları
 app.use(session({
-  secret: 'keepsty-secure-session-key',
+  secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({ 
@@ -1644,7 +1648,7 @@ app.get('/', (req, res) => {
 });
 
 // Uygulama başlangıcında admin kullanıcısı oluştur
-createInitialAdmin();
+// createInitialAdmin();
 
 /* ============================
    User Management API Endpoints
