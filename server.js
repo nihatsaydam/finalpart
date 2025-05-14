@@ -117,10 +117,10 @@ const logActivity = async (action, username, details = {}) => {
 // İlk admin kullanıcısını oluştur
 const createInitialAdmin = async () => {
   try {
-    console.log('Admin kullanıcısı oluşturma kontrolü başladı...');
+    console.log(`${HOTEL_NAME} - Admin kullanıcısı oluşturma kontrolü başladı...`);
     const adminExists = await User.findOne({ username: 'admin' });
     if (!adminExists) {
-      console.log('Admin kullanıcısı bulunamadı, oluşturuluyor...');
+      console.log(`${HOTEL_NAME} - Admin kullanıcısı bulunamadı, oluşturuluyor...`);
       const adminUser = new User({
         username: 'admin',
         password: 'hayda',
@@ -152,7 +152,7 @@ const createInitialAdmin = async () => {
 // MongoDB Atlas bağlantısı
 mongoose
   .connect(
-    `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority&appName=${DB_NAME}`
+    `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`
   )
   .then(() => {
     console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
@@ -172,7 +172,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({ 
-    mongoUrl: `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority&appName=${DB_NAME}`,
+    mongoUrl: `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`,
     collectionName: 'sessions'
   }),
   cookie: { 
