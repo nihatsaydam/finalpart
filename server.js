@@ -165,10 +165,7 @@ mongoose
 
 // Middleware
 // Body parser middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Session ayarları
+// Session ayarlarını düzenleyin
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
   resave: false,
@@ -179,8 +176,8 @@ app.use(session({
   }),
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'none' // Cross-Origin istekleri için gerekli
+    secure: process.env.NODE_ENV === 'production' || sameSite === 'none', // sameSite=none kullanıldığında secure=true olmalı
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Geliştirme ortamında lax kullanın
   }
 }));
 
