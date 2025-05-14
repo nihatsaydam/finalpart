@@ -65,11 +65,14 @@ userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
+    console.log(`${this.username} kullanıcısının şifresi hashlenecek`);
     // Salt oluştur ve şifreyi hashleme
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
+    console.log(`${this.username} kullanıcısının şifresi hashlendi`);
     next();
   } catch (error) {
+    console.error(`Şifre hashleme hatası (${this.username}):`, error);
     next(error);
   }
 });
@@ -123,9 +126,13 @@ const createInitialAdmin = async () => {
     const adminExists = await User.findOne({ username: 'admin', hotelName: HOTEL_NAME });
     if (!adminExists) {
       console.log(`${HOTEL_NAME} - Admin kullanıcısı bulunamadı, oluşturuluyor...`);
+      // Şifre doğrudan verilmesi yerine açık olarak hash etme
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('hayda', salt);
+      
       const adminUser = new User({
         username: 'admin',
-        password: 'hayda',
+        password: hashedPassword, // Hash'lenmiş şifre kullan
         permissions: {
           bellboy: true,
           complaints: true,
@@ -144,7 +151,7 @@ const createInitialAdmin = async () => {
       const savedAdmin = await adminUser.save();
       console.log(`Admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}):`, savedAdmin.username);
     } else {
-      console.log(`Admin kullanıcısı zaten mevcut (${HOTEL_NAME})`);
+      console.log(`Admin kullanıcısı zaten mevcut (${HOTEL_NAME}): ${adminExists.username}`);
     }
   } catch (error) {
     console.error(`Admin oluşturma hatası (${HOTEL_NAME}):`, error);
@@ -154,12 +161,22 @@ const createInitialAdmin = async () => {
 // MongoDB Atlas bağlantısı
 mongoose
   .connect(
-    `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`
+    `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`,
+    { 
+      useNewUrlParser: true, 
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000 // Bağlantı zaman aşımını 5 saniye olarak ayarla
+    }
   )
-  .then(() => {
+  .then(async () => {
     console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
     // Bağlantı başarılı olduktan sonra admin oluşturma işlemini yap
-    createInitialAdmin();
+    try {
+      await createInitialAdmin();
+      console.log('Admin oluşturma işlemi tamamlandı');
+    } catch (err) {
+      console.error('Admin oluşturma sırasında hata:', err);
+    }
   })
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
 
