@@ -1623,7 +1623,7 @@ const createInitialAdmin = async () => {
     if (!adminExists) {
       const adminUser = new User({
         username: 'admin',
-        password: 'keepsty',
+        password: 'hayda',
         permissions: {
           bellboy: true,
           complaints: true,
