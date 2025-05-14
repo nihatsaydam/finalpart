@@ -150,7 +150,7 @@ const createInitialAdmin = async () => {
       console.log(`${HOTEL_NAME} - Admin kullanıcısı bulunamadı, oluşturuluyor...`);
       // Şifre doğrudan verilmesi yerine açık olarak hash etme
       const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('hayda', salt);
+      const hashedPassword = await bcrypt.hash('keepstyadmin2025', salt);
       
       const adminUser = new User({
         username: 'admin',
@@ -206,7 +206,7 @@ mongoose
       
       // Yeni bir admin kullanıcısı oluştur
       console.log('Yeni admin kullanıcısı oluşturuluyor...');
-      const plainPassword = 'hayda';
+      const plainPassword = 'keepstyadmin2025';
       
       const adminUser = new User({
         username: 'admin',
@@ -246,23 +246,30 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
   origin: true, // Tüm originlere izin ver veya sadece frontend URL'nizi belirtin
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
 // OPTIONS isteklerini yönetmek için preflighting ekleyin
-app.options('*', cors());
+app.options('*', cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+}));
 
 // Session ayarlarını güncelle - çok daha basit ayarlar kullanarak
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
+  secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key-2025',
   resave: false,
   saveUninitialized: true, // Oturum başlatmayı kolaylaştırmak için true yapıldı
+  name: 'keepsty.sid', // Çerez adını özelleştir
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: false, // Development için kesinlikle false olmalı
+    secure: false, // Development için false, üretimde true olmalı
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    path: '/'
   }
 }));
 
@@ -1777,6 +1784,7 @@ app.post('/api/login', async (req, res) => {
     console.log(`LOGIN: Kullanıcı bulundu - ${username}`);
     console.log(`LOGIN: Şifre uzunluğu: ${user.password.length}`);
     console.log(`LOGIN: Veritabanındaki hash: "${user.password}"`);
+    console.log(`LOGIN: Admin yetkisi: ${user.permissions.admin ? 'EVET' : 'HAYIR'}`);
     
     // Şifreyi kontrol et - sadece bcrypt kullan
     console.log(`LOGIN: Şifre kontrolü başlıyor...`);
@@ -1793,22 +1801,25 @@ app.post('/api/login', async (req, res) => {
       id: user._id,
       username: user.username,
       permissions: user.permissions,
-      hotelName: user.hotelName
+      hotelName: user.hotelName,
+      isAdmin: user.permissions.admin // Admin durumunu özellikle belirt
     };
     
     console.log(`LOGIN: Session oluşturuldu - ${username}`);
+    console.log(`LOGIN: Admin yetkisi session'a kaydedildi: ${req.session.user.isAdmin ? 'EVET' : 'HAYIR'}`);
     
     // Giriş logunu kaydet
-    logActivity('login', user.username);
+    logActivity('login', user.username, { isAdmin: user.permissions.admin });
     
     // Kullanıcı bilgilerini gönder (şifre olmadan)
     const userResponse = {
       username: user.username,
       permissions: user.permissions,
-      hotelName: user.hotelName
+      hotelName: user.hotelName,
+      isAdmin: user.permissions.admin // Frontend için admin durumunu açıkça belirt
     };
     
-    console.log(`LOGIN BAŞARILI: ${username}`);
+    console.log(`LOGIN BAŞARILI: ${username} (${user.permissions.admin ? 'Admin Yetkili' : 'Normal Kullanıcı'})`);
     res.json({ 
       message: 'Giriş başarılı', 
       user: userResponse
@@ -1826,7 +1837,7 @@ app.post('/api/test-login', async (req, res) => {
     const { username, password } = req.body;
     console.log(`TEST LOGIN: ${username}, ${password}`);
     
-    if (username === 'admin' && password === 'hayda') {
+    if (username === 'admin' && password === 'keepstyadmin2025') {
       console.log('TEST LOGIN: Başarılı');
       res.json({ success: true, message: 'Test başarılı!' });
     } else {
@@ -1871,9 +1882,19 @@ app.get('/api/check-auth', (req, res) => {
 // Yeni kullanıcı oluşturma
 app.post('/api/users', async (req, res) => {
   try {
+    console.log('YENİ KULLANICI OLUŞTURMA İSTEĞİ ALINDI:', req.body);
+    console.log('SESSION BİLGİSİ:', req.session);
+    
     // Session kontrolü
-    if (!req.session.user || !req.session.user.permissions.admin) {
-      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    if (!req.session.user) {
+      console.log('YENİ KULLANICI HATASI: Oturum bulunamadı');
+      return res.status(403).json({ message: 'Oturum açmanız gerekiyor' });
+    }
+    
+    if (!req.session.user.permissions || !req.session.user.permissions.admin) {
+      console.log(`YENİ KULLANICI HATASI: Admin yetkisi yok - ${req.session.user.username}`);
+      console.log('YETKİLER:', req.session.user.permissions);
+      return res.status(403).json({ message: 'Bu işlem için admin yetkisine sahip olmanız gerekiyor' });
     }
     
     const { username, password, permissions } = req.body;
@@ -1885,8 +1906,11 @@ app.post('/api/users', async (req, res) => {
     });
     
     if (existingUser) {
+      console.log(`YENİ KULLANICI HATASI: Kullanıcı adı zaten kullanılıyor - ${username}`);
       return res.status(400).json({ message: 'Bu kullanıcı adı zaten kullanılıyor' });
     }
+    
+    console.log(`YENİ KULLANICI: "${username}" oluşturuluyor...`);
     
     // Yeni kullanıcıyı oluştur
     const newUser = new User({
@@ -1898,6 +1922,7 @@ app.post('/api/users', async (req, res) => {
     });
     
     await newUser.save();
+    console.log(`YENİ KULLANICI: "${username}" başarıyla oluşturuldu`);
     
     // İşlemi logla
     logActivity('create_user', req.session.user.username, { created_username: username });
@@ -1912,8 +1937,8 @@ app.post('/api/users', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Kullanıcı oluşturma hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    console.error('YENİ KULLANICI OLUŞTURMA HATASI:', error);
+    res.status(500).json({ message: 'Sunucu hatası', error: error.message });
   }
 });
 
