@@ -29,6 +29,26 @@ app.use(express.json());
 app.use(express.static('public'));
 const nodemailer = require('nodemailer');
 
+// Bcrypt ve session için gerekli modüller
+const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
+
+// Session ayarları
+app.use(session({
+  secret: 'keepsty-secure-session-key',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ 
+    mongoUrl: `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority&appName=${DB_NAME}`,
+    collectionName: 'sessions'
+  }),
+  cookie: { 
+    maxAge: 1000 * 60 * 60 * 24, // 1 gün
+    secure: process.env.NODE_ENV === 'production'
+  }
+}));
+
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
@@ -1490,10 +1510,417 @@ app.delete('/api/delete-code/:code', async (req, res) => {
   }
 });
 
+/* ============================
+   User Management (Kullanıcı Yönetimi)
+============================ */
+// User (Kullanıcı) modeli
+const userSchema = new mongoose.Schema({
+  username: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true 
+  },
+  password: { 
+    type: String, 
+    required: true 
+  },
+  permissions: {
+    bellboy: { type: Boolean, default: false },
+    complaints: { type: Boolean, default: false },
+    technical: { type: Boolean, default: false },
+    laundry: { type: Boolean, default: false },
+    roomservice: { type: Boolean, default: false },
+    concierge: { type: Boolean, default: false },
+    housekeeping: { type: Boolean, default: false },
+    spa: { type: Boolean, default: false },
+    admin: { type: Boolean, default: false }
+  },
+  createdBy: { 
+    type: String, 
+    required: true 
+  },
+  hotelName: { 
+    type: String, 
+    default: HOTEL_NAME 
+  },
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  }
+});
+
+// Şifre şifreleme (hashleme) middleware'i
+userSchema.pre('save', async function(next) {
+  // Şifre değişmediyse işlemi atla
+  if (!this.isModified('password')) return next();
+  
+  try {
+    // Salt oluştur ve şifreyi hashleme
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ActivityLog (İşlem Günlüğü) modeli
+const activityLogSchema = new mongoose.Schema({
+  action: { 
+    type: String, 
+    required: true 
+  },
+  username: { 
+    type: String, 
+    required: true 
+  },
+  details: { 
+    type: Object, 
+    default: {} 
+  },
+  hotelName: { 
+    type: String, 
+    default: HOTEL_NAME 
+  },
+  timestamp: { 
+    type: Date, 
+    default: Date.now 
+  }
+});
+
+const User = mongoose.model('User', userSchema, 'Users');
+const ActivityLog = mongoose.model('ActivityLog', activityLogSchema, 'ActivityLogs');
+
+// İşlem kaydı oluşturmak için yardımcı fonksiyon
+const logActivity = async (action, username, details = {}) => {
+  try {
+    const log = new ActivityLog({
+      action,
+      username,
+      details,
+      hotelName: HOTEL_NAME
+    });
+    await log.save();
+  } catch (error) {
+    console.error('İşlem günlüğü kaydedilemedi:', error);
+  }
+};
+
+// İlk admin kullanıcısını oluştur
+const createInitialAdmin = async () => {
+  try {
+    const adminExists = await User.findOne({ username: 'admin' });
+    if (!adminExists) {
+      const adminUser = new User({
+        username: 'admin',
+        password: 'keepsty',
+        permissions: {
+          bellboy: true,
+          complaints: true,
+          technical: true,
+          laundry: true, 
+          roomservice: true,
+          concierge: true,
+          housekeeping: true,
+          spa: true,
+          admin: true
+        },
+        createdBy: 'system',
+        hotelName: HOTEL_NAME
+      });
+      
+      await adminUser.save();
+      console.log(`Admin kullanıcısı oluşturuldu (${HOTEL_NAME})`);
+    }
+  } catch (error) {
+    console.error(`Admin oluşturma hatası (${HOTEL_NAME}):`, error);
+  }
+};
+
 // Ana sayfa endpoint'i (Opsiyonel)
 app.get('/', (req, res) => {
   res.send('Welcome to Keepsty Backend API!');
 });
+
+// Uygulama başlangıcında admin kullanıcısı oluştur
+createInitialAdmin();
+
+/* ============================
+   User Management API Endpoints
+============================ */
+
+// Kullanıcı girişi
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Kullanıcıyı kontrol et
+    const user = await User.findOne({ username, hotelName: HOTEL_NAME });
+    if (!user) {
+      return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
+    }
+    
+    // Şifreyi kontrol et
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
+    }
+    
+    // Session bilgilerini ayarla
+    req.session.user = {
+      id: user._id,
+      username: user.username,
+      permissions: user.permissions,
+      hotelName: user.hotelName
+    };
+    
+    // Giriş logunu kaydet
+    logActivity('login', user.username);
+    
+    // Kullanıcı bilgilerini gönder (şifre olmadan)
+    const userResponse = {
+      username: user.username,
+      permissions: user.permissions,
+      hotelName: user.hotelName
+    };
+    
+    res.json({ message: 'Giriş başarılı', user: userResponse });
+    
+  } catch (error) {
+    console.error('Giriş hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// Kullanıcı çıkışı
+app.post('/api/logout', (req, res) => {
+  if (req.session.user) {
+    const username = req.session.user.username;
+    logActivity('logout', username);
+    
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: 'Çıkış yapılamadı' });
+      }
+      res.json({ message: 'Çıkış başarılı' });
+    });
+  } else {
+    res.status(400).json({ message: 'Oturum bulunamadı' });
+  }
+});
+
+// Kullanıcı kontrolü (session kontrol)
+app.get('/api/check-auth', (req, res) => {
+  if (req.session.user) {
+    res.json({ 
+      isAuthenticated: true, 
+      user: req.session.user 
+    });
+  } else {
+    res.json({ isAuthenticated: false });
+  }
+});
+
+// Yeni kullanıcı oluşturma
+app.post('/api/users', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user || !req.session.user.permissions.admin) {
+      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    }
+    
+    const { username, password, permissions } = req.body;
+    
+    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
+    const existingUser = await User.findOne({ 
+      username, 
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({ message: 'Bu kullanıcı adı zaten kullanılıyor' });
+    }
+    
+    // Yeni kullanıcıyı oluştur
+    const newUser = new User({
+      username,
+      password,
+      permissions,
+      createdBy: req.session.user.username,
+      hotelName: HOTEL_NAME
+    });
+    
+    await newUser.save();
+    
+    // İşlemi logla
+    logActivity('create_user', req.session.user.username, { created_username: username });
+    
+    res.status(201).json({ 
+      message: 'Kullanıcı başarıyla oluşturuldu',
+      user: {
+        username: newUser.username,
+        permissions: newUser.permissions,
+        hotelName: newUser.hotelName
+      }
+    });
+    
+  } catch (error) {
+    console.error('Kullanıcı oluşturma hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// Kullanıcıları listeleme (sadece mevcut oteldeki)
+app.get('/api/users', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user || !req.session.user.permissions.admin) {
+      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    }
+    
+    const users = await User.find({ hotelName: HOTEL_NAME }, '-password');
+    res.json(users);
+    
+  } catch (error) {
+    console.error('Kullanıcı listeleme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// Kullanıcı silme
+app.delete('/api/users/:username', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user || !req.session.user.permissions.admin) {
+      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    }
+    
+    const { username } = req.params;
+    
+    // Admin kullanıcısını silme koruması
+    if (username === 'admin') {
+      return res.status(400).json({ message: 'Admin kullanıcısı silinemez' });
+    }
+    
+    // Kendi hesabını silmesini engelle
+    if (username === req.session.user.username) {
+      return res.status(400).json({ message: 'Kendi hesabınızı silemezsiniz' });
+    }
+    
+    const result = await User.deleteOne({ 
+      username, 
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    }
+    
+    // İşlemi logla
+    logActivity('delete_user', req.session.user.username, { deleted_username: username });
+    
+    res.json({ message: 'Kullanıcı başarıyla silindi' });
+    
+  } catch (error) {
+    console.error('Kullanıcı silme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// Kullanıcı güncelleme
+app.put('/api/users/:username', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user || !req.session.user.permissions.admin) {
+      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    }
+    
+    const { username } = req.params;
+    const { permissions, password } = req.body;
+    
+    const user = await User.findOne({ username, hotelName: HOTEL_NAME });
+    
+    if (!user) {
+      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
+    }
+    
+    // Admin kullanıcısına özel koruma
+    if (username === 'admin' && req.session.user.username !== 'admin') {
+      return res.status(400).json({ message: 'Admin kullanıcısı sadece kendisi tarafından düzenlenebilir' });
+    }
+    
+    // Yetkileri güncelle
+    if (permissions) {
+      user.permissions = permissions;
+    }
+    
+    // Şifreyi güncelle (şifre değiştiriliyorsa)
+    if (password) {
+      user.password = password;
+    }
+    
+    await user.save();
+    
+    // İşlemi logla
+    logActivity('update_user', req.session.user.username, { updated_username: username });
+    
+    res.json({ 
+      message: 'Kullanıcı başarıyla güncellendi',
+      user: {
+        username: user.username,
+        permissions: user.permissions,
+        hotelName: user.hotelName
+      }
+    });
+    
+  } catch (error) {
+    console.error('Kullanıcı güncelleme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// İşlem günlüğünü listeleme
+app.get('/api/activity-logs', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user || !req.session.user.permissions.admin) {
+      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
+    }
+    
+    // Sadece mevcut otelin loglarını getir
+    const logs = await ActivityLog.find({ 
+      hotelName: HOTEL_NAME 
+    }).sort({ timestamp: -1 }).limit(100);
+    
+    res.json(logs);
+    
+  } catch (error) {
+    console.error('Log listeleme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
+// İşlem logunu kaydet (diğer servisler için)
+app.post('/api/log-activity', async (req, res) => {
+  try {
+    // Session kontrolü
+    if (!req.session.user) {
+      return res.status(403).json({ message: 'Oturum açmanız gerekiyor' });
+    }
+    
+    const { action, details } = req.body;
+    
+    logActivity(action, req.session.user.username, details);
+    
+    res.json({ message: 'İşlem kaydedildi' });
+    
+  } catch (error) {
+    console.error('Log kaydetme hatası:', error);
+    res.status(500).json({ message: 'Sunucu hatası' });
+  }
+});
+
 // Sunucuyu başlat
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
