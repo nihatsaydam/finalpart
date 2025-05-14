@@ -170,12 +170,41 @@ mongoose
   )
   .then(async () => {
     console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
-    // Bağlantı başarılı olduktan sonra admin oluşturma işlemini yap
+    
+    // Önce mevcut admin kullanıcısını sil ve yeniden oluştur
     try {
-      await createInitialAdmin();
-      console.log('Admin oluşturma işlemi tamamlandı');
+      // Mevcut admin kullanıcısını siliyoruz
+      console.log(`Mevcut admin kullanıcısını silme işlemi başlatılıyor...`);
+      const deleteResult = await User.deleteOne({ username: 'admin', hotelName: HOTEL_NAME });
+      console.log(`Admin silme sonucu:`, deleteResult);
+      
+      // Yeni admin kullanıcısı oluştur
+      console.log(`Yeni admin kullanıcısı oluşturuluyor...`);
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('hayda', salt);
+      
+      const adminUser = new User({
+        username: 'admin',
+        password: hashedPassword,
+        permissions: {
+          bellboy: true,
+          complaints: true,
+          technical: true,
+          laundry: true, 
+          roomservice: true,
+          concierge: true,
+          housekeeping: true,
+          spa: true,
+          admin: true
+        },
+        createdBy: 'system',
+        hotelName: HOTEL_NAME
+      });
+      
+      const savedAdmin = await adminUser.save();
+      console.log(`Yeni admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}):`, savedAdmin.username);
     } catch (err) {
-      console.error('Admin oluşturma sırasında hata:', err);
+      console.error('Admin kullanıcısı yenileme hatası:', err);
     }
   })
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
@@ -1702,14 +1731,21 @@ app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
+    console.log(`Giriş denemesi: ${username}`);
+    
     // Kullanıcıyı kontrol et
     const user = await User.findOne({ username, hotelName: HOTEL_NAME });
     if (!user) {
+      console.log(`Kullanıcı bulunamadı: ${username}`);
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
     
+    console.log(`Kullanıcı bulundu: ${username}, şifre kontrolü yapılıyor`);
+    
     // Şifreyi kontrol et
     const isMatch = await bcrypt.compare(password, user.password);
+    console.log(`Şifre kontrolü sonucu: ${isMatch ? 'Başarılı' : 'Başarısız'}`);
+    
     if (!isMatch) {
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
@@ -1732,6 +1768,7 @@ app.post('/api/login', async (req, res) => {
       hotelName: user.hotelName
     };
     
+    console.log(`${username} kullanıcısının girişi başarılı`);
     res.json({ message: 'Giriş başarılı', user: userResponse });
     
   } catch (error) {
