@@ -168,7 +168,18 @@ mongoose
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session ayarları
+// CORS ayarlarını güncelle - admin bağlantı sorununu çözmek için
+app.use(cors({
+  origin: true, // Tüm originlere izin ver veya sadece frontend URL'nizi belirtin
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
+
+// OPTIONS isteklerini yönetmek için preflighting ekleyin
+app.options('*', cors());
+
+// Session ayarlarını güncelle
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
   resave: false,
@@ -179,16 +190,11 @@ app.use(session({
   }),
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'none' // Cross-Origin istekleri için gerekli
+    secure: false, // Development ortamında false, üretimde true olmalı
+    sameSite: 'lax', // Cross-origin istekleri için 'lax' daha uyumlu
+    httpOnly: true // Tarayıcı script'lerinin çereze erişimini engelle
   }
 }));  
-
-// CORS ayarlarını güncelle - credentials desteği ekleyin
-app.use(cors({
-  origin: true, // Tüm origin'lere izin ver (ya da spesifik domain'leri belirtin)
-  credentials: true // Cross-Origin credential (cookie) paylaşımı için gerekli
-}));
 
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
 const transporter = nodemailer.createTransport({
