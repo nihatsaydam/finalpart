@@ -225,22 +225,18 @@ app.use(cors({
 // OPTIONS isteklerini yönetmek için preflighting ekleyin
 app.options('*', cors());
 
-// Session ayarlarını güncelle
+// Session ayarlarını güncelle - çok daha basit ayarlar kullanarak
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
   resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({ 
-    mongoUrl: `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`,
-    collectionName: 'sessions'
-  }),
+  saveUninitialized: true, // Oturum başlatmayı kolaylaştırmak için true yapıldı
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: false, // Development ortamında false, üretimde true olmalı
-    sameSite: 'lax', // Cross-origin istekleri için 'lax' daha uyumlu
-    httpOnly: true // Tarayıcı script'lerinin çereze erişimini engelle
+    secure: false, // Development için kesinlikle false olmalı
+    httpOnly: true,
+    sameSite: 'lax'
   }
-}));  
+}));
 
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
 const transporter = nodemailer.createTransport({
@@ -1726,27 +1722,35 @@ app.get('/', (req, res) => {
    User Management API Endpoints
 ============================ */
 
-// Kullanıcı girişi
+// Kullanıcı girişi - Basitleştirilmiş ve daha fazla log eklenmiş versiyon
 app.post('/api/login', async (req, res) => {
   try {
+    console.log('LOGIN İSTEĞİ ALINDI:', req.body);
     const { username, password } = req.body;
     
-    console.log(`Giriş denemesi: ${username}`);
+    if (!username || !password) {
+      console.log('LOGIN HATASI: Kullanıcı adı veya şifre boş');
+      return res.status(400).json({ message: 'Kullanıcı adı ve şifre gereklidir' });
+    }
+    
+    console.log(`LOGIN DENEME: ${username}, Hotel: ${HOTEL_NAME}`);
     
     // Kullanıcıyı kontrol et
     const user = await User.findOne({ username, hotelName: HOTEL_NAME });
+    
     if (!user) {
-      console.log(`Kullanıcı bulunamadı: ${username}`);
+      console.log(`LOGIN HATA: Kullanıcı bulunamadı - ${username}`);
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
     
-    console.log(`Kullanıcı bulundu: ${username}, şifre kontrolü yapılıyor`);
+    console.log(`LOGIN: Kullanıcı bulundu - ${username}, Hash: ${user.password.substring(0, 10)}...`);
     
     // Şifreyi kontrol et
     const isMatch = await bcrypt.compare(password, user.password);
-    console.log(`Şifre kontrolü sonucu: ${isMatch ? 'Başarılı' : 'Başarısız'}`);
+    console.log(`LOGIN: Şifre kontrolü - ${isMatch ? 'BAŞARILI' : 'BAŞARISIZ'}`);
     
     if (!isMatch) {
+      console.log(`LOGIN HATA: Şifre eşleşmedi - ${username}`);
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
     
@@ -1758,22 +1762,58 @@ app.post('/api/login', async (req, res) => {
       hotelName: user.hotelName
     };
     
-    // Giriş logunu kaydet
-    logActivity('login', user.username);
+    console.log(`LOGIN: Session oluşturuldu - ${username}`);
+    console.log('SESSION DATA:', req.session);
     
-    // Kullanıcı bilgilerini gönder (şifre olmadan)
-    const userResponse = {
-      username: user.username,
-      permissions: user.permissions,
-      hotelName: user.hotelName
-    };
-    
-    console.log(`${username} kullanıcısının girişi başarılı`);
-    res.json({ message: 'Giriş başarılı', user: userResponse });
+    // Session ID'yi ayarla ve kaydet
+    req.session.save(err => {
+      if (err) {
+        console.error('SESSION KAYIT HATASI:', err);
+        return res.status(500).json({ message: 'Oturum kaydedilemedi' });
+      }
+      
+      console.log(`LOGIN: Session kaydedildi, SESSION ID: ${req.session.id}`);
+      
+      // Giriş logunu kaydet
+      logActivity('login', user.username);
+      
+      // Kullanıcı bilgilerini gönder (şifre olmadan)
+      const userResponse = {
+        username: user.username,
+        permissions: user.permissions,
+        hotelName: user.hotelName
+      };
+      
+      console.log(`LOGIN BAŞARILI: ${username}`);
+      res.json({ 
+        message: 'Giriş başarılı', 
+        user: userResponse,
+        sessionID: req.session.id
+      });
+    });
     
   } catch (error) {
-    console.error('Giriş hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    console.error('LOGIN HATA:', error);
+    res.status(500).json({ message: 'Sunucu hatası', error: error.message });
+  }
+});
+
+// Test endpoint'i - Basit bir login testi
+app.post('/api/test-login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    console.log(`TEST LOGIN: ${username}, ${password}`);
+    
+    if (username === 'admin' && password === 'hayda') {
+      console.log('TEST LOGIN: Başarılı');
+      res.json({ success: true, message: 'Test başarılı!' });
+    } else {
+      console.log('TEST LOGIN: Başarısız');
+      res.json({ success: false, message: 'Test başarısız!' });
+    }
+  } catch (error) {
+    console.error('TEST LOGIN ERROR:', error);
+    res.status(500).json({ success: false, message: 'Test hatası!' });
   }
 });
 
