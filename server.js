@@ -25,7 +25,6 @@ const userSchema = new mongoose.Schema({
   username: { 
     type: String, 
     required: true, 
-    unique: true,
     trim: true 
   },
   password: { 
@@ -56,6 +55,9 @@ const userSchema = new mongoose.Schema({
     default: Date.now 
   }
 });
+
+// Kullanıcı adı ve otel adı kombinasyonu için bileşik benzersiz indeks
+userSchema.index({ username: 1, hotelName: 1 }, { unique: true });
 
 // Şifre şifreleme (hashleme) middleware'i
 userSchema.pre('save', async function(next) {
