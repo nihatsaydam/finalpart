@@ -118,7 +118,7 @@ const logActivity = async (action, username, details = {}) => {
 const createInitialAdmin = async () => {
   try {
     console.log(`${HOTEL_NAME} - Admin kullanıcısı oluşturma kontrolü başladı...`);
-    const adminExists = await User.findOne({ username: 'admin' });
+    const adminExists = await User.findOne({ username: 'admin', hotelName: HOTEL_NAME });
     if (!adminExists) {
       console.log(`${HOTEL_NAME} - Admin kullanıcısı bulunamadı, oluşturuluyor...`);
       const adminUser = new User({
