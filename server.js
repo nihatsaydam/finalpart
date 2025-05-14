@@ -3,6 +3,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
+const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 
@@ -28,6 +32,10 @@ mongoose
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
 
 // Middleware
+// Body parser middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Session ayarları
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
@@ -1920,6 +1928,15 @@ app.post('/api/log-activity', async (req, res) => {
     console.error('Log kaydetme hatası:', error);
     res.status(500).json({ message: 'Sunucu hatası' });
   }
+});
+
+// Sağlık kontrolu
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    message: `${HOTEL_NAME} backend is running`,
+    dbName: DB_NAME
+  });
 });
 
 // Sunucuyu başlat
