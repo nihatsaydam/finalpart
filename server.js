@@ -28,16 +28,6 @@ mongoose
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
-const nodemailer = require('nodemailer');
-
-// Bcrypt ve session için gerekli modüller
-const bcrypt = require('bcryptjs');
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
-
 // Session ayarları
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key',
@@ -49,8 +39,15 @@ app.use(session({
   }),
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: process.env.NODE_ENV === 'production'
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'none' // Cross-Origin istekleri için gerekli
   }
+}));
+
+// CORS ayarlarını güncelle - credentials desteği ekleyin
+app.use(cors({
+  origin: true, // Tüm origin'lere izin ver (ya da spesifik domain'leri belirtin)
+  credentials: true // Cross-Origin credential (cookie) paylaşımı için gerekli
 }));
 
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
