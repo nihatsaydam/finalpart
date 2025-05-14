@@ -258,20 +258,40 @@ app.options('*', cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
-// Session ayarlarını güncelle - çok daha basit ayarlar kullanarak
+// Session ayarlarını güncelle - MongoDB Store ile kalıcı session
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key-2025',
   resave: false,
-  saveUninitialized: true, // Oturum başlatmayı kolaylaştırmak için true yapıldı
-  name: 'keepsty.sid', // Çerez adını özelleştir
+  saveUninitialized: true,
+  name: 'keepsty.sid',
+  store: MongoStore.create({ 
+    mongoUrl: `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`,
+    collectionName: 'sessions',
+    ttl: 60 * 60 * 24, // 1 gün
+    autoRemove: 'native',
+    touchAfter: 24 * 3600 // 24 saat
+  }),
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: false, // Development için false, üretimde true olmalı
+    secure: false, // Development için false
     httpOnly: true,
     sameSite: 'lax',
     path: '/'
   }
 }));
+
+// Login middleware - her istekte session bilgilerini kontrol et
+app.use((req, res, next) => {
+  // Önceki istekten kalan session bilgilerini logla
+  if (req.session.user) {
+    console.log(`MIDDLEWARE: Aktif Kullanıcı:`, {
+      username: req.session.user.username,
+      isAdmin: req.session.user.permissions?.admin === true,
+      permissions: req.session.user.permissions
+    });
+  }
+  next();
+});
 
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
 const transporter = nodemailer.createTransport({
@@ -1784,7 +1804,8 @@ app.post('/api/login', async (req, res) => {
     console.log(`LOGIN: Kullanıcı bulundu - ${username}`);
     console.log(`LOGIN: Şifre uzunluğu: ${user.password.length}`);
     console.log(`LOGIN: Veritabanındaki hash: "${user.password}"`);
-    console.log(`LOGIN: Admin yetkisi: ${user.permissions.admin ? 'EVET' : 'HAYIR'}`);
+    console.log(`LOGIN: Admin yetkisi: ${user.permissions.admin === true ? 'EVET' : 'HAYIR'}`);
+    console.log(`LOGIN: Tüm yetkiler:`, user.permissions);
     
     // Şifreyi kontrol et - sadece bcrypt kullan
     console.log(`LOGIN: Şifre kontrolü başlıyor...`);
@@ -1796,33 +1817,50 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
     
+    // Admin yetkisini özellikle boolean olarak doğrula
+    const isAdmin = user.permissions && user.permissions.admin === true;
+    
     // Session bilgilerini ayarla
     req.session.user = {
       id: user._id,
       username: user.username,
-      permissions: user.permissions,
+      permissions: {
+        ...user.permissions,
+        admin: isAdmin // Boolean olarak zorla
+      },
       hotelName: user.hotelName,
-      isAdmin: user.permissions.admin // Admin durumunu özellikle belirt
+      isAdmin: isAdmin // Admin durumunu özellikle belirt
     };
     
-    console.log(`LOGIN: Session oluşturuldu - ${username}`);
-    console.log(`LOGIN: Admin yetkisi session'a kaydedildi: ${req.session.user.isAdmin ? 'EVET' : 'HAYIR'}`);
-    
-    // Giriş logunu kaydet
-    logActivity('login', user.username, { isAdmin: user.permissions.admin });
-    
-    // Kullanıcı bilgilerini gönder (şifre olmadan)
-    const userResponse = {
-      username: user.username,
-      permissions: user.permissions,
-      hotelName: user.hotelName,
-      isAdmin: user.permissions.admin // Frontend için admin durumunu açıkça belirt
-    };
-    
-    console.log(`LOGIN BAŞARILI: ${username} (${user.permissions.admin ? 'Admin Yetkili' : 'Normal Kullanıcı'})`);
-    res.json({ 
-      message: 'Giriş başarılı', 
-      user: userResponse
+    // Session'ı kaydet
+    req.session.save(err => {
+      if (err) {
+        console.error('SESSION KAYIT HATASI:', err);
+        return res.status(500).json({ message: 'Oturum kaydedilemedi' });
+      }
+      
+      console.log(`LOGIN: Session kaydedildi. Session ID: ${req.session.id}`);
+      console.log('SESSION VERİSİ:', req.session);
+      
+      // Giriş logunu kaydet
+      logActivity('login', user.username, { isAdmin });
+      
+      // Kullanıcı bilgilerini gönder (şifre olmadan)
+      const userResponse = {
+        username: user.username,
+        permissions: {
+          ...user.permissions,
+          admin: isAdmin // Boolean olarak zorla
+        },
+        hotelName: user.hotelName,
+        isAdmin: isAdmin // Frontend için admin durumunu açıkça belirt
+      };
+      
+      console.log(`LOGIN BAŞARILI: ${username} (${isAdmin ? 'Admin Yetkili' : 'Normal Kullanıcı'})`);
+      res.json({ 
+        message: 'Giriş başarılı', 
+        user: userResponse
+      });
     });
     
   } catch (error) {
@@ -1891,13 +1929,22 @@ app.post('/api/users', async (req, res) => {
       return res.status(403).json({ message: 'Oturum açmanız gerekiyor' });
     }
     
-    if (!req.session.user.permissions || !req.session.user.permissions.admin) {
+    // Admin yetkisi kontrolü - boolean olarak kesin kontrol
+    const isAdmin = req.session.user.permissions && req.session.user.permissions.admin === true;
+    console.log(`YETKI KONTROLÜ: ${req.session.user.username} - Admin mi? ${isAdmin ? 'EVET' : 'HAYIR'}`);
+    console.log('PERMISSIONS:', JSON.stringify(req.session.user.permissions));
+    
+    if (!isAdmin) {
       console.log(`YENİ KULLANICI HATASI: Admin yetkisi yok - ${req.session.user.username}`);
-      console.log('YETKİLER:', req.session.user.permissions);
       return res.status(403).json({ message: 'Bu işlem için admin yetkisine sahip olmanız gerekiyor' });
     }
     
     const { username, password, permissions } = req.body;
+    
+    if (!username || !password) {
+      console.log('YENİ KULLANICI HATASI: Gerekli alanlar eksik');
+      return res.status(400).json({ message: 'Kullanıcı adı ve şifre gereklidir' });
+    }
     
     // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
     const existingUser = await User.findOne({ 
@@ -1911,34 +1958,45 @@ app.post('/api/users', async (req, res) => {
     }
     
     console.log(`YENİ KULLANICI: "${username}" oluşturuluyor...`);
+    console.log('YENİ KULLANICI YETKİLERİ:', permissions);
     
     // Yeni kullanıcıyı oluştur
     const newUser = new User({
       username,
-      password,
-      permissions,
+      password, // middleware şifreyi hashleyecek
+      permissions: permissions || {}, // permissions undefined ise boş obje kullan
       createdBy: req.session.user.username,
       hotelName: HOTEL_NAME
     });
     
-    await newUser.save();
-    console.log(`YENİ KULLANICI: "${username}" başarıyla oluşturuldu`);
+    const savedUser = await newUser.save();
+    console.log(`YENİ KULLANICI: "${username}" başarıyla oluşturuldu, ID: ${savedUser._id}`);
     
     // İşlemi logla
-    logActivity('create_user', req.session.user.username, { created_username: username });
+    logActivity('create_user', req.session.user.username, { 
+      created_username: username,
+      created_user_id: savedUser._id,
+      isAdmin: permissions?.admin === true
+    });
     
     res.status(201).json({ 
+      success: true,
       message: 'Kullanıcı başarıyla oluşturuldu',
       user: {
-        username: newUser.username,
-        permissions: newUser.permissions,
-        hotelName: newUser.hotelName
+        username: savedUser.username,
+        permissions: savedUser.permissions,
+        hotelName: savedUser.hotelName,
+        id: savedUser._id
       }
     });
     
   } catch (error) {
     console.error('YENİ KULLANICI OLUŞTURMA HATASI:', error);
-    res.status(500).json({ message: 'Sunucu hatası', error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
+      error: error.message 
+    });
   }
 });
 
