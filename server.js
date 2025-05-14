@@ -19,6 +19,136 @@ console.log(`Starting server for hotel: ${HOTEL_NAME}`);
 console.log(`Using database: ${DB_NAME}`);
 console.log(`Admin email: ${ADMIN_EMAIL}`);
 
+// ===== User ve ActivityLog modelleri (MongoDB bağlantısından ÖNCE tanımlanıyor) =====
+// User (Kullanıcı) modeli
+const userSchema = new mongoose.Schema({
+  username: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true 
+  },
+  password: { 
+    type: String, 
+    required: true 
+  },
+  permissions: {
+    bellboy: { type: Boolean, default: false },
+    complaints: { type: Boolean, default: false },
+    technical: { type: Boolean, default: false },
+    laundry: { type: Boolean, default: false },
+    roomservice: { type: Boolean, default: false },
+    concierge: { type: Boolean, default: false },
+    housekeeping: { type: Boolean, default: false },
+    spa: { type: Boolean, default: false },
+    admin: { type: Boolean, default: false }
+  },
+  createdBy: { 
+    type: String, 
+    required: true 
+  },
+  hotelName: { 
+    type: String, 
+    default: HOTEL_NAME 
+  },
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  }
+});
+
+// Şifre şifreleme (hashleme) middleware'i
+userSchema.pre('save', async function(next) {
+  // Şifre değişmediyse işlemi atla
+  if (!this.isModified('password')) return next();
+  
+  try {
+    // Salt oluştur ve şifreyi hashleme
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ActivityLog (İşlem Günlüğü) modeli
+const activityLogSchema = new mongoose.Schema({
+  action: { 
+    type: String, 
+    required: true 
+  },
+  username: { 
+    type: String, 
+    required: true 
+  },
+  details: { 
+    type: Object, 
+    default: {} 
+  },
+  hotelName: { 
+    type: String, 
+    default: HOTEL_NAME 
+  },
+  timestamp: { 
+    type: Date, 
+    default: Date.now 
+  }
+});
+
+const User = mongoose.model('User', userSchema, 'Users');
+const ActivityLog = mongoose.model('ActivityLog', activityLogSchema, 'ActivityLogs');
+
+// İşlem kaydı oluşturmak için yardımcı fonksiyon
+const logActivity = async (action, username, details = {}) => {
+  try {
+    const log = new ActivityLog({
+      action,
+      username,
+      details,
+      hotelName: HOTEL_NAME
+    });
+    await log.save();
+  } catch (error) {
+    console.error('İşlem günlüğü kaydedilemedi:', error);
+  }
+};
+
+// İlk admin kullanıcısını oluştur
+const createInitialAdmin = async () => {
+  try {
+    console.log('Admin kullanıcısı oluşturma kontrolü başladı...');
+    const adminExists = await User.findOne({ username: 'admin' });
+    if (!adminExists) {
+      console.log('Admin kullanıcısı bulunamadı, oluşturuluyor...');
+      const adminUser = new User({
+        username: 'admin',
+        password: 'hayda',
+        permissions: {
+          bellboy: true,
+          complaints: true,
+          technical: true,
+          laundry: true, 
+          roomservice: true,
+          concierge: true,
+          housekeeping: true,
+          spa: true,
+          admin: true
+        },
+        createdBy: 'system',
+        hotelName: HOTEL_NAME
+      });
+      
+      const savedAdmin = await adminUser.save();
+      console.log(`Admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}):`, savedAdmin.username);
+    } else {
+      console.log(`Admin kullanıcısı zaten mevcut (${HOTEL_NAME})`);
+    }
+  } catch (error) {
+    console.error(`Admin oluşturma hatası (${HOTEL_NAME}):`, error);
+  }
+};
+
 // MongoDB Atlas bağlantısı
 mongoose
   .connect(
@@ -1522,130 +1652,12 @@ app.delete('/api/delete-code/:code', async (req, res) => {
 /* ============================
    User Management (Kullanıcı Yönetimi)
 ============================ */
-// User (Kullanıcı) modeli
-const userSchema = new mongoose.Schema({
-  username: { 
-    type: String, 
-    required: true, 
-    unique: true,
-    trim: true 
-  },
-  password: { 
-    type: String, 
-    required: true 
-  },
-  permissions: {
-    bellboy: { type: Boolean, default: false },
-    complaints: { type: Boolean, default: false },
-    technical: { type: Boolean, default: false },
-    laundry: { type: Boolean, default: false },
-    roomservice: { type: Boolean, default: false },
-    concierge: { type: Boolean, default: false },
-    housekeeping: { type: Boolean, default: false },
-    spa: { type: Boolean, default: false },
-    admin: { type: Boolean, default: false }
-  },
-  createdBy: { 
-    type: String, 
-    required: true 
-  },
-  hotelName: { 
-    type: String, 
-    default: HOTEL_NAME 
-  },
-  createdAt: { 
-    type: Date, 
-    default: Date.now 
-  }
-});
+// User (Kullanıcı) modeli - Artık yukarıda tanımlanıyor
+// (İlk tanım satır ~23'te olduğu için buradan kaldırıyoruz)
 
-// Şifre şifreleme (hashleme) middleware'i
-userSchema.pre('save', async function(next) {
-  // Şifre değişmediyse işlemi atla
-  if (!this.isModified('password')) return next();
-  
-  try {
-    // Salt oluştur ve şifreyi hashleme
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
+// ActivityLog (İşlem Günlüğü) modeli - Artık yukarıda tanımlanıyor
 
-// ActivityLog (İşlem Günlüğü) modeli
-const activityLogSchema = new mongoose.Schema({
-  action: { 
-    type: String, 
-    required: true 
-  },
-  username: { 
-    type: String, 
-    required: true 
-  },
-  details: { 
-    type: Object, 
-    default: {} 
-  },
-  hotelName: { 
-    type: String, 
-    default: HOTEL_NAME 
-  },
-  timestamp: { 
-    type: Date, 
-    default: Date.now 
-  }
-});
-
-const User = mongoose.model('User', userSchema, 'Users');
-const ActivityLog = mongoose.model('ActivityLog', activityLogSchema, 'ActivityLogs');
-
-// İşlem kaydı oluşturmak için yardımcı fonksiyon
-const logActivity = async (action, username, details = {}) => {
-  try {
-    const log = new ActivityLog({
-      action,
-      username,
-      details,
-      hotelName: HOTEL_NAME
-    });
-    await log.save();
-  } catch (error) {
-    console.error('İşlem günlüğü kaydedilemedi:', error);
-  }
-};
-
-// İlk admin kullanıcısını oluştur
-const createInitialAdmin = async () => {
-  try {
-    const adminExists = await User.findOne({ username: 'admin' });
-    if (!adminExists) {
-      const adminUser = new User({
-        username: 'admin',
-        password: 'hayda',
-        permissions: {
-          bellboy: true,
-          complaints: true,
-          technical: true,
-          laundry: true, 
-          roomservice: true,
-          concierge: true,
-          housekeeping: true,
-          spa: true,
-          admin: true
-        },
-        createdBy: 'system',
-        hotelName: HOTEL_NAME
-      });
-      
-      await adminUser.save();
-      console.log(`Admin kullanıcısı oluşturuldu (${HOTEL_NAME})`);
-    }
-  } catch (error) {
-    console.error(`Admin oluşturma hatası (${HOTEL_NAME}):`, error);
-  }
-};
+// İlk admin kullanıcısını oluştur - Yukarıda tanımlandı ve çağrıldı
 
 // Ana sayfa endpoint'i (Opsiyonel)
 app.get('/', (req, res) => {
@@ -1653,8 +1665,9 @@ app.get('/', (req, res) => {
 });
 
 // Uygulama başlangıcında admin kullanıcısı oluştur
- createInitialAdmin();
-
+// Yukarıda MongoDB bağlantısı sonrasında çağrıldığı için burada çağrılmamalı
+// createInitialAdmin();
+ 
 /* ============================
    User Management API Endpoints
 ============================ */
