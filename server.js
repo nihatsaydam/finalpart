@@ -61,18 +61,40 @@ userSchema.index({ username: 1, hotelName: 1 }, { unique: true });
 
 // Şifre şifreleme (hashleme) middleware'i
 userSchema.pre('save', async function(next) {
-  // Şifre değişmediyse işlemi atla
-  if (!this.isModified('password')) return next();
-  
   try {
-    console.log(`${this.username} kullanıcısının şifresi hashlenecek`);
+    // Bu kullanıcı için loglama
+    console.log(`PRE-SAVE: ${this.username} kullanıcısı için save işlemi başlıyor`);
+    
+    // Şifre değişmediyse işlemi atla
+    if (!this.isModified('password')) {
+      console.log(`PRE-SAVE: ${this.username} için şifre değişmemiş, hash atlanıyor`);
+      return next();
+    }
+    
+    // LOGLAMA - Güvenlik riski, sadece geliştirme ortamında kullanın
+    console.log(`PRE-SAVE: Şifre (hashlenmeden önce): "${this.password}"`);
+    console.log(`PRE-SAVE: ${this.username} kullanıcısının şifresi hashleniyor...`);
+    
     // Salt oluştur ve şifreyi hashleme
     const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    console.log(`${this.username} kullanıcısının şifresi hashlendi`);
-    next();
+    console.log(`PRE-SAVE: Oluşturulan salt: "${salt}"`);
+    
+    // Hashleme işlemi
+    try {
+      const hashedPassword = await bcrypt.hash(this.password, salt);
+      console.log(`PRE-SAVE: Oluşturulan hash: "${hashedPassword}"`);
+      
+      // Şifreyi hashle
+      this.password = hashedPassword;
+      
+      console.log(`PRE-SAVE: ${this.username} kullanıcısının şifresi başarıyla hashlendi`);
+      next();
+    } catch (hashError) {
+      console.error(`PRE-SAVE ERROR: Hashleme işlemi başarısız:`, hashError);
+      throw hashError; // Bu hatayı yukarı fırlat
+    }
   } catch (error) {
-    console.error(`Şifre hashleme hatası (${this.username}):`, error);
+    console.error(`PRE-SAVE ERROR: Genel hata:`, error);
     next(error);
   }
 });
@@ -171,21 +193,24 @@ mongoose
   .then(async () => {
     console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
     
-    // Önce mevcut admin kullanıcısını sil ve yeniden oluştur
     try {
-      // Mevcut admin kullanıcısını siliyoruz
-      console.log(`Mevcut admin kullanıcısını silme işlemi başlatılıyor...`);
-      const deleteResult = await User.deleteOne({ username: 'admin', hotelName: HOTEL_NAME });
-      console.log(`Admin silme sonucu:`, deleteResult);
+      // Mevcut admin kullanıcılarını temizle (test dahil)
+      console.log('Mevcut admin kullanıcılarını temizleme...');
+      await User.deleteMany({ 
+        $or: [
+          { username: 'admin', hotelName: HOTEL_NAME },
+          { username: 'testadmin', hotelName: HOTEL_NAME }
+        ]
+      });
+      console.log('Mevcut admin kullanıcıları silindi');
       
-      // Yeni admin kullanıcısı oluştur
-      console.log(`Yeni admin kullanıcısı oluşturuluyor...`);
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('hayda', salt);
+      // Yeni bir admin kullanıcısı oluştur
+      console.log('Yeni admin kullanıcısı oluşturuluyor...');
+      const plainPassword = 'hayda';
       
       const adminUser = new User({
         username: 'admin',
-        password: hashedPassword,
+        password: plainPassword, // Plain text şifre - middleware bunu hashleyecek
         permissions: {
           bellboy: true,
           complaints: true,
@@ -201,10 +226,13 @@ mongoose
         hotelName: HOTEL_NAME
       });
       
+      console.log('Admin kullanıcısını kaydediyorum...');
       const savedAdmin = await adminUser.save();
-      console.log(`Yeni admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}):`, savedAdmin.username);
+      console.log(`Admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}): ${savedAdmin.username}`);
+      console.log(`Admin şifre uzunluğu: ${savedAdmin.password.length}`);
+      
     } catch (err) {
-      console.error('Admin kullanıcısı yenileme hatası:', err);
+      console.error('Admin kullanıcısı oluşturma hatası:', err);
     }
   })
   .catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
@@ -1728,6 +1756,9 @@ app.post('/api/login', async (req, res) => {
     console.log('LOGIN İSTEĞİ ALINDI:', req.body);
     const { username, password } = req.body;
     
+    // Debug için şifreyi logla (GÜVENLİK RİSKİ - sadece geliştirme ortamında kullanın)
+    console.log(`LOGIN GİRİLEN ŞİFRE: "${password}"`);
+    
     if (!username || !password) {
       console.log('LOGIN HATASI: Kullanıcı adı veya şifre boş');
       return res.status(400).json({ message: 'Kullanıcı adı ve şifre gereklidir' });
@@ -1743,11 +1774,14 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
     }
     
-    console.log(`LOGIN: Kullanıcı bulundu - ${username}, Hash: ${user.password.substring(0, 10)}...`);
+    console.log(`LOGIN: Kullanıcı bulundu - ${username}`);
+    console.log(`LOGIN: Şifre uzunluğu: ${user.password.length}`);
+    console.log(`LOGIN: Veritabanındaki hash: "${user.password}"`);
     
-    // Şifreyi kontrol et
+    // Şifreyi kontrol et - sadece bcrypt kullan
+    console.log(`LOGIN: Şifre kontrolü başlıyor...`);
     const isMatch = await bcrypt.compare(password, user.password);
-    console.log(`LOGIN: Şifre kontrolü - ${isMatch ? 'BAŞARILI' : 'BAŞARISIZ'}`);
+    console.log(`LOGIN: Şifre kontrolü sonucu: ${isMatch ? 'BAŞARILI' : 'BAŞARISIZ'}`);
     
     if (!isMatch) {
       console.log(`LOGIN HATA: Şifre eşleşmedi - ${username}`);
@@ -1763,33 +1797,21 @@ app.post('/api/login', async (req, res) => {
     };
     
     console.log(`LOGIN: Session oluşturuldu - ${username}`);
-    console.log('SESSION DATA:', req.session);
     
-    // Session ID'yi ayarla ve kaydet
-    req.session.save(err => {
-      if (err) {
-        console.error('SESSION KAYIT HATASI:', err);
-        return res.status(500).json({ message: 'Oturum kaydedilemedi' });
-      }
-      
-      console.log(`LOGIN: Session kaydedildi, SESSION ID: ${req.session.id}`);
-      
-      // Giriş logunu kaydet
-      logActivity('login', user.username);
-      
-      // Kullanıcı bilgilerini gönder (şifre olmadan)
-      const userResponse = {
-        username: user.username,
-        permissions: user.permissions,
-        hotelName: user.hotelName
-      };
-      
-      console.log(`LOGIN BAŞARILI: ${username}`);
-      res.json({ 
-        message: 'Giriş başarılı', 
-        user: userResponse,
-        sessionID: req.session.id
-      });
+    // Giriş logunu kaydet
+    logActivity('login', user.username);
+    
+    // Kullanıcı bilgilerini gönder (şifre olmadan)
+    const userResponse = {
+      username: user.username,
+      permissions: user.permissions,
+      hotelName: user.hotelName
+    };
+    
+    console.log(`LOGIN BAŞARILI: ${username}`);
+    res.json({ 
+      message: 'Giriş başarılı', 
+      user: userResponse
     });
     
   } catch (error) {
@@ -2055,8 +2077,34 @@ app.get('/health', (req, res) => {
 });
 
 // Sunucuyu başlat
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+const startServer = () => {
+  // Deneyeceğimiz portlar
+  const ports = [8080, 8081, 8082, 8083, 3000, 3001, 5000];
+  let currentPortIndex = 0;
+  
+  const tryPort = (port) => {
+    const server = app.listen(port, '0.0.0.0', () => {
+      console.log(`Server başarıyla ${port} portunda çalışıyor!`);
+      console.log(`Hotel: ${HOTEL_NAME}, Database: ${DB_NAME}`);
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`Port ${port} kullanımda, bir sonraki deneniyor...`);
+        currentPortIndex++;
+        if (currentPortIndex < ports.length) {
+          tryPort(ports[currentPortIndex]);
+        } else {
+          console.error('Hiçbir port kullanılabilir değil. Sunucu başlatılamadı.');
+        }
+      } else {
+        console.error('Sunucu başlatılırken hata:', err);
+      }
+    });
+  };
+  
+  // İlk portu dene
+  tryPort(ports[currentPortIndex]);
+};
+
+// Sunucuyu başlat
+startServer();
    
