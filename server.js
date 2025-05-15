@@ -194,7 +194,7 @@ mongoose
     console.log(`Connected to MongoDB Atlas ${DB_NAME} Database!`);
     
     try {
-      // Mevcut admin kullanıcılarını temizle (test dahil)
+      // Mevcut admin kullanıcısını düzeltme...
       console.log('Mevcut admin kullanıcısını düzeltme...');
       
       // Admin kullanıcısını bul
@@ -340,13 +340,71 @@ app.use(session({
 // Login middleware - her istekte session bilgilerini kontrol et
 app.use((req, res, next) => {
   // Önceki istekten kalan session bilgilerini logla
-  if (req.session.user) {
+  if (req.session && req.session.user) {
     console.log(`MIDDLEWARE: Aktif Kullanıcı:`, {
       username: req.session.user.username,
       isAdmin: req.session.user.permissions?.admin === true,
       permissions: req.session.user.permissions
     });
   }
+  next();
+});
+
+// Special admin bypass middleware - session middleware'inden SONRA çalıştırılmalı!
+app.use((req, res, next) => {
+  // Special admin header varsa, session'a admin yetkisi ekle
+  const adminKey = req.headers['x-admin-key'];
+  if (adminKey === ADMIN_BYPASS_KEY) {
+    console.log('🔑 ADMİN BYPASS KULLANILDI - Özel anahtar ile admin yetkisi verildi!');
+    
+    // Session yoksa oluşturma (zaten session middleware oluşturmuş olacak)
+    if (!req.session.user) {
+      req.session.user = {
+        username: 'admin-bypass',
+        permissions: {
+          bellboy: true,
+          complaints: true,
+          technical: true,
+          laundry: true, 
+          roomservice: true,
+          concierge: true,
+          housekeeping: true,
+          spa: true,
+          admin: true
+        },
+        hotelName: HOTEL_NAME,
+        isAdmin: true,
+        _bypassMode: true
+      };
+      
+      // Session'ı kaydet
+      req.session.save(err => {
+        if (err) {
+          console.error('BYPASS SESSION KAYIT HATASI:', err);
+        } else {
+          console.log('BYPASS SESSION KAYDEDILDI');
+        }
+      });
+    } else {
+      // Var olan bir session varsa, admin yetkisi ekle
+      req.session.user.permissions = {
+        ...(req.session.user.permissions || {}),
+        admin: true
+      };
+      req.session.user.isAdmin = true;
+      req.session.user._bypassMode = true;
+      
+      // Session'ı kaydet
+      req.session.save(err => {
+        if (err) {
+          console.error('BYPASS SESSION KAYIT HATASI:', err);
+        } else {
+          console.log('BYPASS SESSION GÜNCELLENDI');
+        }
+      });
+    }
+  }
+  
   next();
 });
 
