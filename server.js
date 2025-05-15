@@ -299,12 +299,13 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS ayarlarını güncelle - admin bağlantı sorununu çözmek için
+// CORS ayarlarını güncelle - tüm domainlere izin ver
 app.use(cors({
-  origin: true, // Tüm originlere izin ver veya sadece frontend URL'nizi belirtin
-  credentials: true,
+  origin: true, // Tüm originlere izin ver
+  credentials: true, // Kesinlikle gerekli
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Admin-Key'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
 // OPTIONS isteklerini yönetmek için preflighting ekleyin
@@ -312,10 +313,22 @@ app.options('*', cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Admin-Key'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
-// Session ayarlarını güncelle - MongoDB Store ile kalıcı session
+// Debug endpoint - basit bağlantı testi
+app.get('/api/debug', (req, res) => {
+  res.json({
+    success: true,
+    message: 'API bağlantısı başarılı',
+    timestamp: new Date().toISOString(),
+    sessionExists: !!req.session,
+    hasUser: !!(req.session && req.session.user)
+  });
+});
+
+// Session ayarlarını güncelle - cookie ayarları daha esnek
 app.use(session({
   secret: process.env.SESSION_SECRET || 'keepsty-secure-session-key-2025',
   resave: false,
@@ -330,10 +343,11 @@ app.use(session({
   }),
   cookie: { 
     maxAge: 1000 * 60 * 60 * 24, // 1 gün
-    secure: false, // Development için false
+    secure: false, // Development için false - önemli!
     httpOnly: true,
-    sameSite: 'lax',
-    path: '/'
+    sameSite: 'lax', // Cross-domain için
+    path: '/',
+    domain: undefined // Sadece aynı domain için
   }
 }));
 
@@ -2320,4 +2334,67 @@ const startServer = () => {
 
 // Sunucuyu başlat
 startServer();
+
+// === Admin Kullanıcı Endpoint - Özel Basit Bypass ===
+// Direkt olarak yeni kullanıcı oluşturmayı kolaylaştırmak için çok basit bir endpoint
+// !!! Bu endpointi sadece geliştirme aşamasında kullanın, üretimde kaldırın !!!
+app.post('/api/create-user-bypass', async (req, res) => {
+  try {
+    console.log('BYPASS ENDPOINT KULLANILDI!');
+    console.log('REQUEST BODY:', req.body);
+    
+    const { username, password, permissions } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Kullanıcı adı ve şifre gereklidir' 
+      });
+    }
+    
+    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
+    const existingUser = await User.findOne({ 
+      username, 
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Bu kullanıcı adı zaten kullanılıyor' 
+      });
+    }
+    
+    // Yeni kullanıcıyı oluştur
+    const newUser = new User({
+      username,
+      password, // middleware şifreyi hashleyecek
+      permissions: permissions || {}, // permissions undefined ise boş obje kullan
+      createdBy: 'bypass-endpoint',
+      hotelName: HOTEL_NAME
+    });
+    
+    const savedUser = await newUser.save();
+    console.log(`BYPASS ENDPOINT: "${username}" kullanıcısı oluşturuldu, ID: ${savedUser._id}`);
+    
+    res.status(201).json({ 
+      success: true,
+      message: 'Kullanıcı başarıyla oluşturuldu',
+      user: {
+        username: savedUser.username,
+        permissions: savedUser.permissions,
+        hotelName: savedUser.hotelName,
+        id: savedUser._id
+      }
+    });
+    
+  } catch (error) {
+    console.error('BYPASS ENDPOINT HATASI:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
+      error: error.message 
+    });
+  }
+});
    
