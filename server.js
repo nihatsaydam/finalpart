@@ -141,44 +141,274 @@ const logActivity = async (action, username, details = {}) => {
   }
 };
 
-// İlk admin kullanıcısını oluştur
-const createInitialAdmin = async () => {
+// === User Management Endpoints ===
+// Check if admin exists for first-time setup
+app.get('/api/check-admin-exists', async (req, res) => {
   try {
-    console.log(`${HOTEL_NAME} - Admin kullanıcısı oluşturma kontrolü başladı...`);
-    const adminExists = await User.findOne({ username: 'admin', hotelName: HOTEL_NAME });
-    if (!adminExists) {
-      console.log(`${HOTEL_NAME} - Admin kullanıcısı bulunamadı, oluşturuluyor...`);
-      // Şifre doğrudan verilmesi yerine açık olarak hash etme
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('keepstyadmin2025', salt);
-      
-      const adminUser = new User({
-        username: 'admin',
-        password: hashedPassword, // Hash'lenmiş şifre kullan
-        permissions: {
-          bellboy: true,
-          complaints: true,
-          technical: true,
-          laundry: true, 
-          roomservice: true,
-          concierge: true,
-          housekeeping: true,
-          spa: true,
-          admin: true
-        },
-        createdBy: 'system',
-        hotelName: HOTEL_NAME
-      });
-      
-      const savedAdmin = await adminUser.save();
-      console.log(`Admin kullanıcısı başarıyla oluşturuldu (${HOTEL_NAME}):`, savedAdmin.username);
-    } else {
-      console.log(`Admin kullanıcısı zaten mevcut (${HOTEL_NAME}): ${adminExists.username}`);
-    }
+    const adminExists = await User.findOne({ 
+      permissions: { admin: true },
+      hotelName: HOTEL_NAME 
+    });
+    
+    res.json({ 
+      adminExists: !!adminExists,
+      firstTimeSetup: !adminExists
+    });
   } catch (error) {
-    console.error(`Admin oluşturma hatası (${HOTEL_NAME}):`, error);
+    console.error('Admin kontrol hatası:', error);
+    res.status(500).json({ success: false, message: 'Sunucu hatası' });
   }
-};
+});
+
+// Create first admin user
+app.post('/api/create-first-admin', async (req, res) => {
+  try {
+    // Önce admin olup olmadığını kontrol et
+    const adminExists = await User.findOne({ 
+      "permissions.admin": true,
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (adminExists) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Zaten bir admin kullanıcısı mevcut' 
+      });
+    }
+    
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Kullanıcı adı ve şifre gereklidir' 
+      });
+    }
+    
+    // Yeni admin kullanıcısını oluştur
+    const newAdmin = new User({
+      username,
+      password, // middleware şifreyi hashleyecek
+      permissions: {
+        bellboy: true,
+        complaints: true,
+        technical: true,
+        laundry: true, 
+        roomservice: true,
+        concierge: true,
+        housekeeping: true,
+        spa: true,
+        admin: true
+      },
+      createdBy: 'first-time-setup',
+      hotelName: HOTEL_NAME
+    });
+    
+    const savedAdmin = await newAdmin.save();
+    
+    // İşlemi logla
+    await logActivity('first-admin-created', username, { 
+      hotelName: HOTEL_NAME,
+      time: new Date()
+    });
+    
+    res.status(201).json({ 
+      success: true,
+      message: 'İlk admin kullanıcısı başarıyla oluşturuldu',
+      user: {
+        username: savedAdmin.username,
+        permissions: savedAdmin.permissions,
+        hotelName: savedAdmin.hotelName,
+        id: savedAdmin._id
+      }
+    });
+    
+  } catch (error) {
+    console.error('İlk admin oluşturma hatası:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Admin oluşturulurken bir hata oluştu', 
+      error: error.message 
+    });
+  }
+});
+
+// Admin için kullanıcı oluşturma endpoint'i
+app.post('/api/admin/create-user', async (req, res) => {
+  try {
+    // Oturum kontrolü - sadece admin kullanabilir
+    if (!req.session || !req.session.user || !req.session.user.permissions || !req.session.user.permissions.admin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Bu işlem için admin yetkisi gereklidir' 
+      });
+    }
+    
+    const { username, password, permissions } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Kullanıcı adı ve şifre gereklidir' 
+      });
+    }
+    
+    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
+    const existingUser = await User.findOne({ 
+      username, 
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Bu kullanıcı adı zaten kullanılıyor' 
+      });
+    }
+    
+    // Geçerli izinleri kontrol et ve varsayılan olarak false ata
+    const validPermissions = {
+      bellboy: permissions?.bellboy || false,
+      complaints: permissions?.complaints || false,
+      technical: permissions?.technical || false,
+      laundry: permissions?.laundry || false,
+      roomservice: permissions?.roomservice || false,
+      concierge: permissions?.concierge || false,
+      housekeeping: permissions?.housekeeping || false,
+      spa: permissions?.spa || false,
+      admin: permissions?.admin || false
+    };
+    
+    // Yeni kullanıcıyı oluştur
+    const newUser = new User({
+      username,
+      password, // middleware şifreyi hashleyecek
+      permissions: validPermissions,
+      createdBy: req.session.user.username,
+      hotelName: HOTEL_NAME
+    });
+    
+    const savedUser = await newUser.save();
+    
+    // İşlemi logla
+    await logActivity('user-created', req.session.user.username, { 
+      newUser: username,
+      permissions: validPermissions
+    });
+    
+    res.status(201).json({ 
+      success: true,
+      message: 'Kullanıcı başarıyla oluşturuldu',
+      user: {
+        username: savedUser.username,
+        permissions: savedUser.permissions,
+        hotelName: savedUser.hotelName,
+        id: savedUser._id
+      }
+    });
+    
+  } catch (error) {
+    console.error('Kullanıcı oluşturma hatası:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
+      error: error.message 
+    });
+  }
+});
+
+// Admin için kullanıcıları listeleme endpoint'i
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    // Oturum kontrolü - sadece admin kullanabilir
+    if (!req.session || !req.session.user || !req.session.user.permissions || !req.session.user.permissions.admin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Bu işlem için admin yetkisi gereklidir' 
+      });
+    }
+    
+    // Tüm kullanıcıları bul (şifre hariç)
+    const users = await User.find({ hotelName: HOTEL_NAME }).select('-password');
+    
+    res.json({ 
+      success: true, 
+      users 
+    });
+  } catch (error) {
+    console.error('Kullanıcı listeleme hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Kullanıcılar listelenirken bir hata oluştu', 
+      error: error.message 
+    });
+  }
+});
+
+// === Admin Kullanıcı Endpoint - Özel Basit Bypass ===
+// Direkt olarak yeni kullanıcı oluşturmayı kolaylaştırmak için çok basit bir endpoint
+// !!! Bu endpointi sadece geliştirme aşamasında kullanın, üretimde kaldırın !!!
+app.post('/api/create-user-bypass', async (req, res) => {
+  try {
+    console.log('BYPASS ENDPOINT KULLANILDI!');
+    console.log('REQUEST BODY:', req.body);
+    
+    const { username, password, permissions } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Kullanıcı adı ve şifre gereklidir' 
+      });
+    }
+    
+    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
+    const existingUser = await User.findOne({ 
+      username, 
+      hotelName: HOTEL_NAME 
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Bu kullanıcı adı zaten kullanılıyor' 
+      });
+    }
+    
+    // Yeni kullanıcıyı oluştur
+    const newUser = new User({
+      username,
+      password, // middleware şifreyi hashleyecek
+      permissions: permissions || {}, // permissions undefined ise boş obje kullan
+      createdBy: 'bypass-endpoint',
+      hotelName: HOTEL_NAME
+    });
+    
+    const savedUser = await newUser.save();
+    console.log(`BYPASS ENDPOINT: "${username}" kullanıcısı oluşturuldu, ID: ${savedUser._id}`);
+    
+    res.status(201).json({ 
+      success: true,
+      message: 'Kullanıcı başarıyla oluşturuldu',
+      user: {
+        username: savedUser.username,
+        permissions: savedUser.permissions,
+        hotelName: savedUser.hotelName,
+        id: savedUser._id
+      }
+    });
+    
+  } catch (error) {
+    console.error('BYPASS ENDPOINT HATASI:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
+      error: error.message 
+    });
+  }
+});
+
+// ====
 
 // MongoDB Atlas bağlantısı
 mongoose
@@ -1907,392 +2137,6 @@ app.get('/', (req, res) => {
 ============================ */
 
 // Kullanıcı girişi - Basitleştirilmiş ve daha fazla log eklenmiş versiyon
-app.post('/api/login', async (req, res) => {
-  try {
-    console.log('LOGIN İSTEĞİ ALINDI:', req.body);
-    const { username, password } = req.body;
-    
-    // Debug için şifreyi logla (GÜVENLİK RİSKİ - sadece geliştirme ortamında kullanın)
-    console.log(`LOGIN GİRİLEN ŞİFRE: "${password}"`);
-    
-    if (!username || !password) {
-      console.log('LOGIN HATASI: Kullanıcı adı veya şifre boş');
-      return res.status(400).json({ message: 'Kullanıcı adı ve şifre gereklidir' });
-    }
-    
-    console.log(`LOGIN DENEME: ${username}, Hotel: ${HOTEL_NAME}`);
-    
-    // Kullanıcıyı kontrol et
-    const user = await User.findOne({ username, hotelName: HOTEL_NAME });
-    
-    if (!user) {
-      console.log(`LOGIN HATA: Kullanıcı bulunamadı - ${username}`);
-      return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
-    }
-    
-    console.log(`LOGIN: Kullanıcı bulundu - ${username}`);
-    console.log(`LOGIN: Şifre uzunluğu: ${user.password.length}`);
-    console.log(`LOGIN: Veritabanındaki hash: "${user.password}"`);
-    console.log(`LOGIN: Admin yetkisi: ${user.permissions.admin === true ? 'EVET' : 'HAYIR'}`);
-    console.log(`LOGIN: Tüm yetkiler:`, user.permissions);
-    
-    // Şifreyi kontrol et - sadece bcrypt kullan
-    console.log(`LOGIN: Şifre kontrolü başlıyor...`);
-    const isMatch = await bcrypt.compare(password, user.password);
-    console.log(`LOGIN: Şifre kontrolü sonucu: ${isMatch ? 'BAŞARILI' : 'BAŞARISIZ'}`);
-    
-    if (!isMatch) {
-      console.log(`LOGIN HATA: Şifre eşleşmedi - ${username}`);
-      return res.status(400).json({ message: 'Kullanıcı adı veya şifre yanlış' });
-    }
-    
-    // Admin yetkisini özellikle boolean olarak doğrula
-    const isAdmin = user.permissions && user.permissions.admin === true;
-    
-    // Session bilgilerini ayarla
-    req.session.user = {
-      id: user._id,
-      username: user.username,
-      permissions: {
-        ...user.permissions,
-        admin: isAdmin // Boolean olarak zorla
-      },
-      hotelName: user.hotelName,
-      isAdmin: isAdmin // Admin durumunu özellikle belirt
-    };
-    
-    // Session'ı kaydet
-    req.session.save(err => {
-      if (err) {
-        console.error('SESSION KAYIT HATASI:', err);
-        return res.status(500).json({ message: 'Oturum kaydedilemedi' });
-      }
-      
-      console.log(`LOGIN: Session kaydedildi. Session ID: ${req.session.id}`);
-      console.log('SESSION VERİSİ:', req.session);
-      
-      // Giriş logunu kaydet
-      logActivity('login', user.username, { isAdmin });
-      
-      // Kullanıcı bilgilerini gönder (şifre olmadan)
-      const userResponse = {
-        username: user.username,
-        permissions: {
-          ...user.permissions,
-          admin: isAdmin // Boolean olarak zorla
-        },
-        hotelName: user.hotelName,
-        isAdmin: isAdmin // Frontend için admin durumunu açıkça belirt
-      };
-      
-      console.log(`LOGIN BAŞARILI: ${username} (${isAdmin ? 'Admin Yetkili' : 'Normal Kullanıcı'})`);
-      res.json({ 
-        message: 'Giriş başarılı', 
-        user: userResponse
-      });
-    });
-    
-  } catch (error) {
-    console.error('LOGIN HATA:', error);
-    res.status(500).json({ message: 'Sunucu hatası', error: error.message });
-  }
-});
-
-// Test endpoint'i - Basit bir login testi
-app.post('/api/test-login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    console.log(`TEST LOGIN: ${username}, ${password}`);
-    
-    if (username === 'admin' && password === 'keepstyadmin2025') {
-      console.log('TEST LOGIN: Başarılı');
-      res.json({ success: true, message: 'Test başarılı!' });
-    } else {
-      console.log('TEST LOGIN: Başarısız');
-      res.json({ success: false, message: 'Test başarısız!' });
-    }
-  } catch (error) {
-    console.error('TEST LOGIN ERROR:', error);
-    res.status(500).json({ success: false, message: 'Test hatası!' });
-  }
-});
-
-// Kullanıcı çıkışı
-app.post('/api/logout', (req, res) => {
-  if (req.session.user) {
-    const username = req.session.user.username;
-    logActivity('logout', username);
-    
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ message: 'Çıkış yapılamadı' });
-      }
-      res.json({ message: 'Çıkış başarılı' });
-    });
-  } else {
-    res.status(400).json({ message: 'Oturum bulunamadı' });
-  }
-});
-
-// Kullanıcı kontrolü (session kontrol)
-app.get('/api/check-auth', (req, res) => {
-  if (req.session.user) {
-    res.json({ 
-      isAuthenticated: true, 
-      user: req.session.user 
-    });
-  } else {
-    res.json({ isAuthenticated: false });
-  }
-});
-
-// Yeni kullanıcı oluşturma
-app.post('/api/users', async (req, res) => {
-  try {
-    console.log('YENİ KULLANICI OLUŞTURMA İSTEĞİ ALINDI:', req.body);
-    console.log('SESSION BİLGİSİ:', req.session);
-    console.log('HEADERS:', req.headers);
-    
-    const adminBypass = req.headers['x-admin-key'] === ADMIN_BYPASS_KEY;
-    
-    // Session veya bypass kontrolü
-    if (!req.session.user && !adminBypass) {
-      console.log('YENİ KULLANICI HATASI: Oturum bulunamadı');
-      return res.status(403).json({ message: 'Oturum açmanız gerekiyor' });
-    }
-    
-    // Admin yetkisi kontrolü - bypass varsa atlıyoruz
-    let isAdmin = false;
-    
-    if (adminBypass) {
-      isAdmin = true;
-      console.log('ADMIN BYPASS: Özel anahtar kullanıldı, yetki kontrolü atlanıyor');
-    } else {
-      isAdmin = req.session.user.permissions?.admin === true || req.session.user.isAdmin === true;
-      console.log(`YETKI KONTROLÜ: ${req.session.user.username} - Admin mi? ${isAdmin ? 'EVET' : 'HAYIR'}`);
-      console.log('PERMISSIONS:', JSON.stringify(req.session.user.permissions));
-    }
-    
-    if (!isAdmin && !adminBypass) {
-      console.log(`YENİ KULLANICI HATASI: Admin yetkisi yok`);
-      return res.status(403).json({ message: 'Bu işlem için admin yetkisine sahip olmanız gerekiyor' });
-    }
-    
-    const { username, password, permissions } = req.body;
-    
-    if (!username || !password) {
-      console.log('YENİ KULLANICI HATASI: Gerekli alanlar eksik');
-      return res.status(400).json({ message: 'Kullanıcı adı ve şifre gereklidir' });
-    }
-    
-    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
-    const existingUser = await User.findOne({ 
-      username, 
-      hotelName: HOTEL_NAME 
-    });
-    
-    if (existingUser) {
-      console.log(`YENİ KULLANICI HATASI: Kullanıcı adı zaten kullanılıyor - ${username}`);
-      return res.status(400).json({ message: 'Bu kullanıcı adı zaten kullanılıyor' });
-    }
-    
-    console.log(`YENİ KULLANICI: "${username}" oluşturuluyor...`);
-    console.log('YENİ KULLANICI YETKİLERİ:', permissions);
-    
-    // Yeni kullanıcıyı oluştur
-    const newUser = new User({
-      username,
-      password, // middleware şifreyi hashleyecek
-      permissions: permissions || {}, // permissions undefined ise boş obje kullan
-      createdBy: adminBypass ? 'admin-bypass' : req.session.user.username,
-      hotelName: HOTEL_NAME
-    });
-    
-    const savedUser = await newUser.save();
-    console.log(`YENİ KULLANICI: "${username}" başarıyla oluşturuldu, ID: ${savedUser._id}`);
-    
-    // İşlemi logla
-    logActivity(
-      'create_user', 
-      adminBypass ? 'admin-bypass' : req.session.user.username, 
-      { 
-        created_username: username,
-        created_user_id: savedUser._id,
-        isAdmin: permissions?.admin === true,
-        bypassUsed: adminBypass
-      }
-    );
-    
-    res.status(201).json({ 
-      success: true,
-      message: 'Kullanıcı başarıyla oluşturuldu',
-      user: {
-        username: savedUser.username,
-        permissions: savedUser.permissions,
-        hotelName: savedUser.hotelName,
-        id: savedUser._id
-      }
-    });
-    
-  } catch (error) {
-    console.error('YENİ KULLANICI OLUŞTURMA HATASI:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
-      error: error.message 
-    });
-  }
-});
-
-// Kullanıcıları listeleme (sadece mevcut oteldeki)
-app.get('/api/users', async (req, res) => {
-  try {
-    // Session kontrolü
-    if (!req.session.user || !req.session.user.permissions.admin) {
-      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
-    }
-    
-    const users = await User.find({ hotelName: HOTEL_NAME }, '-password');
-    res.json(users);
-    
-  } catch (error) {
-    console.error('Kullanıcı listeleme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
-  }
-});
-
-// Kullanıcı silme
-app.delete('/api/users/:username', async (req, res) => {
-  try {
-    // Session kontrolü
-    if (!req.session.user || !req.session.user.permissions.admin) {
-      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
-    }
-    
-    const { username } = req.params;
-    
-    // Admin kullanıcısını silme koruması
-    if (username === 'admin') {
-      return res.status(400).json({ message: 'Admin kullanıcısı silinemez' });
-    }
-    
-    // Kendi hesabını silmesini engelle
-    if (username === req.session.user.username) {
-      return res.status(400).json({ message: 'Kendi hesabınızı silemezsiniz' });
-    }
-    
-    const result = await User.deleteOne({ 
-      username, 
-      hotelName: HOTEL_NAME 
-    });
-    
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
-    }
-    
-    // İşlemi logla
-    logActivity('delete_user', req.session.user.username, { deleted_username: username });
-    
-    res.json({ message: 'Kullanıcı başarıyla silindi' });
-    
-  } catch (error) {
-    console.error('Kullanıcı silme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
-  }
-});
-
-// Kullanıcı güncelleme
-app.put('/api/users/:username', async (req, res) => {
-  try {
-    // Session kontrolü
-    if (!req.session.user || !req.session.user.permissions.admin) {
-      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
-    }
-    
-    const { username } = req.params;
-    const { permissions, password } = req.body;
-    
-    const user = await User.findOne({ username, hotelName: HOTEL_NAME });
-    
-    if (!user) {
-      return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
-    }
-    
-    // Admin kullanıcısına özel koruma
-    if (username === 'admin' && req.session.user.username !== 'admin') {
-      return res.status(400).json({ message: 'Admin kullanıcısı sadece kendisi tarafından düzenlenebilir' });
-    }
-    
-    // Yetkileri güncelle
-    if (permissions) {
-      user.permissions = permissions;
-    }
-    
-    // Şifreyi güncelle (şifre değiştiriliyorsa)
-    if (password) {
-      user.password = password;
-    }
-    
-    await user.save();
-    
-    // İşlemi logla
-    logActivity('update_user', req.session.user.username, { updated_username: username });
-    
-    res.json({ 
-      message: 'Kullanıcı başarıyla güncellendi',
-      user: {
-        username: user.username,
-        permissions: user.permissions,
-        hotelName: user.hotelName
-      }
-    });
-    
-  } catch (error) {
-    console.error('Kullanıcı güncelleme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
-  }
-});
-
-// İşlem günlüğünü listeleme
-app.get('/api/activity-logs', async (req, res) => {
-  try {
-    // Session kontrolü
-    if (!req.session.user || !req.session.user.permissions.admin) {
-      return res.status(403).json({ message: 'Bu işlem için yetkiniz yok' });
-    }
-    
-    // Sadece mevcut otelin loglarını getir
-    const logs = await ActivityLog.find({ 
-      hotelName: HOTEL_NAME 
-    }).sort({ timestamp: -1 }).limit(100);
-    
-    res.json(logs);
-    
-  } catch (error) {
-    console.error('Log listeleme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
-  }
-});
-
-// İşlem logunu kaydet (diğer servisler için)
-app.post('/api/log-activity', async (req, res) => {
-  try {
-    // Session kontrolü
-    if (!req.session.user) {
-      return res.status(403).json({ message: 'Oturum açmanız gerekiyor' });
-    }
-    
-    const { action, details } = req.body;
-    
-    logActivity(action, req.session.user.username, details);
-    
-    res.json({ message: 'İşlem kaydedildi' });
-    
-  } catch (error) {
-    console.error('Log kaydetme hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
-  }
-});
 
 // Sağlık kontrolu
 app.get('/health', (req, res) => {
@@ -2335,65 +2179,138 @@ const startServer = () => {
 // Sunucuyu başlat
 startServer();
 
-// === Admin Kullanıcı Endpoint - Özel Basit Bypass ===
-// Direkt olarak yeni kullanıcı oluşturmayı kolaylaştırmak için çok basit bir endpoint
-// !!! Bu endpointi sadece geliştirme aşamasında kullanın, üretimde kaldırın !!!
-app.post('/api/create-user-bypass', async (req, res) => {
+// Disable automatic admin creation since we now use first-user setup
+// createInitialAdmin();
+
+// Kullanıcı giriş endpoint'i
+app.post('/api/login', async (req, res) => {
   try {
-    console.log('BYPASS ENDPOINT KULLANILDI!');
-    console.log('REQUEST BODY:', req.body);
-    
-    const { username, password, permissions } = req.body;
-    
+    const { username, password } = req.body;
+
     if (!username || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Kullanıcı adı ve şifre gereklidir' 
+      return res.status(400).json({
+        success: false,
+        message: 'Kullanıcı adı ve şifre gereklidir'
       });
     }
-    
-    // Kullanıcı adının bu otel için benzersiz olup olmadığını kontrol et
-    const existingUser = await User.findOne({ 
+
+    // Kullanıcıyı bul
+    const user = await User.findOne({ 
       username, 
       hotelName: HOTEL_NAME 
     });
-    
-    if (existingUser) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Bu kullanıcı adı zaten kullanılıyor' 
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Geçersiz kullanıcı adı veya şifre'
       });
     }
-    
-    // Yeni kullanıcıyı oluştur
-    const newUser = new User({
-      username,
-      password, // middleware şifreyi hashleyecek
-      permissions: permissions || {}, // permissions undefined ise boş obje kullan
-      createdBy: 'bypass-endpoint',
-      hotelName: HOTEL_NAME
+
+    // Şifreyi kontrol et
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Geçersiz kullanıcı adı veya şifre'
+      });
+    }
+
+    // Kullanıcı bilgilerini session'a kaydet (şifre hariç)
+    req.session.user = {
+      id: user._id,
+      username: user.username,
+      permissions: user.permissions,
+      hotelName: user.hotelName,
+      isAdmin: user.permissions.admin === true
+    };
+
+    // Giriş işlemini logla
+    await logActivity('user-login', username, { 
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      time: new Date()
     });
+
+    // Session'ı kaydet ve yanıt döndür
+    req.session.save(err => {
+      if (err) {
+        console.error('Session kayıt hatası:', err);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Oturum başlatılamadı' 
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Giriş başarılı',
+        user: {
+          username: user.username,
+          permissions: user.permissions,
+          hotelName: user.hotelName,
+          isAdmin: user.permissions.admin === true
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Giriş hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası',
+      error: error.message
+    });
+  }
+});
+
+// Çıkış endpoint'i
+app.post('/api/logout', (req, res) => {
+  if (req.session && req.session.user) {
+    const username = req.session.user.username;
     
-    const savedUser = await newUser.save();
-    console.log(`BYPASS ENDPOINT: "${username}" kullanıcısı oluşturuldu, ID: ${savedUser._id}`);
-    
-    res.status(201).json({ 
-      success: true,
-      message: 'Kullanıcı başarıyla oluşturuldu',
+    // Session'ı temizle
+    req.session.destroy(async err => {
+      if (err) {
+        console.error('Session silme hatası:', err);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Çıkış yapılırken hata oluştu' 
+        });
+      }
+      
+      // Çıkış işlemini logla
+      await logActivity('user-logout', username, { 
+        time: new Date()
+      });
+      
+      res.json({ 
+        success: true, 
+        message: 'Çıkış başarılı' 
+      });
+    });
+  } else {
+    res.json({ 
+      success: true, 
+      message: 'Zaten çıkış yapılmış' 
+    });
+  }
+});
+
+// Aktif oturum bilgisi endpoint'i
+app.get('/api/session', (req, res) => {
+  if (req.session && req.session.user) {
+    res.json({
+      loggedIn: true,
       user: {
-        username: savedUser.username,
-        permissions: savedUser.permissions,
-        hotelName: savedUser.hotelName,
-        id: savedUser._id
+        username: req.session.user.username,
+        permissions: req.session.user.permissions,
+        hotelName: req.session.user.hotelName,
+        isAdmin: req.session.user.permissions.admin === true
       }
     });
-    
-  } catch (error) {
-    console.error('BYPASS ENDPOINT HATASI:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Kullanıcı oluşturulurken bir hata oluştu', 
-      error: error.message 
+  } else {
+    res.json({
+      loggedIn: false
     });
   }
 });
