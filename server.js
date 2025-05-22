@@ -146,7 +146,7 @@ const logActivity = async (action, username, details = {}) => {
 app.get('/api/check-admin-exists', async (req, res) => {
   try {
     const adminExists = await User.findOne({ 
-      permissions: { admin: true },
+      "permissions.admin": true,
       hotelName: HOTEL_NAME 
     });
     
@@ -341,6 +341,168 @@ app.get('/api/admin/users', async (req, res) => {
       success: false, 
       message: 'Kullanıcılar listelenirken bir hata oluştu', 
       error: error.message 
+    });
+  }
+});
+
+// Kullanıcı silme endpoint'i
+app.delete('/api/admin/users/:userId', async (req, res) => {
+  try {
+    // Oturum kontrolü - sadece admin kullanabilir
+    if (!req.session || !req.session.user || !req.session.user.permissions || !req.session.user.permissions.admin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Bu işlem için admin yetkisi gereklidir' 
+      });
+    }
+
+    const { userId } = req.params;
+    
+    // Kullanıcının kendisini silmesini engelle
+    if (req.session.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kendi hesabınızı silemezsiniz'
+      });
+    }
+    
+    const deletedUser = await User.findByIdAndDelete(userId);
+    
+    if (!deletedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Kullanıcı bulunamadı'
+      });
+    }
+    
+    // İşlemi logla
+    await logActivity('user-deleted', req.session.user.username, {
+      deletedUser: deletedUser.username,
+      userId: deletedUser._id
+    });
+    
+    res.json({
+      success: true,
+      message: 'Kullanıcı başarıyla silindi'
+    });
+  } catch (error) {
+    console.error('Kullanıcı silme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kullanıcı silinirken bir hata oluştu',
+      error: error.message
+    });
+  }
+});
+
+// Kullanıcı güncelleme endpoint'i
+app.put('/api/admin/users/:userId', async (req, res) => {
+  try {
+    // Oturum kontrolü - sadece admin kullanabilir
+    if (!req.session || !req.session.user || !req.session.user.permissions || !req.session.user.permissions.admin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bu işlem için admin yetkisi gereklidir'
+      });
+    }
+
+    const { userId } = req.params;
+    const { username, password, permissions } = req.body;
+    
+    // Güncellenecek kullanıcıyı bul
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Kullanıcı bulunamadı'
+      });
+    }
+    
+    // Kullanıcı adını güncelle (eğer verilmişse)
+    if (username && username !== user.username) {
+      // Yeni kullanıcı adının benzersiz olup olmadığını kontrol et
+      const existingUser = await User.findOne({
+        username,
+        hotelName: HOTEL_NAME,
+        _id: { $ne: userId } // Kendisi hariç kontrol et
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bu kullanıcı adı zaten kullanılıyor'
+        });
+      }
+      
+      user.username = username;
+    }
+    
+    // Şifreyi güncelle (eğer verilmişse)
+    if (password) {
+      user.password = password; // Middleware otomatik olarak hashleyecek
+    }
+    
+    // İzinleri güncelle (eğer verilmişse)
+    if (permissions) {
+      // Son admin kullanıcısının admin yetkisini kaldırmayı engelle
+      if (user.permissions.admin && !permissions.admin) {
+        const adminCount = await User.countDocuments({
+          "permissions.admin": true,
+          hotelName: HOTEL_NAME
+        });
+        
+        if (adminCount <= 1) {
+          return res.status(400).json({
+            success: false,
+            message: 'Son admin kullanıcısının yetkisi kaldırılamaz'
+          });
+        }
+      }
+      
+      user.permissions = {
+        bellboy: permissions.bellboy || false,
+        complaints: permissions.complaints || false,
+        technical: permissions.technical || false,
+        laundry: permissions.laundry || false,
+        roomservice: permissions.roomservice || false,
+        concierge: permissions.concierge || false,
+        housekeeping: permissions.housekeeping || false,
+        spa: permissions.spa || false,
+        admin: permissions.admin || false
+      };
+    }
+    
+    // Kullanıcıyı kaydet
+    const updatedUser = await user.save();
+    
+    // İşlemi logla
+    await logActivity('user-updated', req.session.user.username, {
+      updatedUser: user.username,
+      userId: user._id,
+      changes: {
+        username: username !== undefined,
+        password: password !== undefined,
+        permissions: permissions !== undefined
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Kullanıcı başarıyla güncellendi',
+      user: {
+        id: updatedUser._id,
+        username: updatedUser.username,
+        permissions: updatedUser.permissions,
+        hotelName: updatedUser.hotelName
+      }
+    });
+  } catch (error) {
+    console.error('Kullanıcı güncelleme hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kullanıcı güncellenirken bir hata oluştu',
+      error: error.message
     });
   }
 });
