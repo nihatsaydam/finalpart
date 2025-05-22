@@ -1974,6 +1974,8 @@ const accessCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
   room: { type: String, required: true },
   validUntil: { type: Date, required: true },
+  checkInDate: { type: Date }, // Check-in tarihi
+  checkOutDate: { type: Date }, // Check-out tarihi
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -1991,6 +1993,24 @@ app.post('/api/validate-code', async (req, res) => {
       return res.json({ valid: false });
     }
     
+    // Check-in ve check-out tarihlerini kontrol et
+    const now = new Date();
+    
+    // Eğer check-in ve check-out tarihleri tanımlanmışsa
+    if (accessCode.checkInDate && accessCode.checkOutDate) {
+      const checkInDate = new Date(accessCode.checkInDate);
+      const checkOutDate = new Date(accessCode.checkOutDate);
+      
+      // Şu anki tarih check-in ile check-out arasında değilse geçersiz
+      if (now < checkInDate || now > checkOutDate) {
+        console.log(`Kod geçerli ama tarih aralığında değil: ${code}, Tarih: ${now.toISOString()}, Check-in: ${checkInDate.toISOString()}, Check-out: ${checkOutDate.toISOString()}`);
+        return res.json({ 
+          valid: false,
+          reason: "date_range"
+        });
+      }
+    }
+    
     console.log(`Başarılı kod kullanımı: ${code}, Oda: ${accessCode.room}`);
     return res.json({ 
       valid: true, 
@@ -2005,7 +2025,7 @@ app.post('/api/validate-code', async (req, res) => {
 // 2. Yeni Kod Oluşturma
 app.post('/api/generate-code', async (req, res) => {
   try {
-    const { room, validDays, validHours } = req.body;
+    const { room, validDays, validHours, checkInDate, checkOutDate } = req.body;
     
     if (!room) {
       return res.status(400).json({ success: false, error: 'Oda numarası gerekli' });
@@ -2027,15 +2047,55 @@ app.post('/api/generate-code', async (req, res) => {
       validUntil.setDate(validUntil.getDate() + days);
     }
     
+    // Check-in ve check-out tarihlerini kontrol et ve ayarla
+    let parsedCheckInDate = null;
+    let parsedCheckOutDate = null;
+    
+    if (checkInDate) {
+      parsedCheckInDate = new Date(checkInDate);
+      // Geçersiz tarih formatı kontrolü
+      if (isNaN(parsedCheckInDate.getTime())) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Geçersiz check-in tarihi formatı' 
+        });
+      }
+    }
+    
+    if (checkOutDate) {
+      parsedCheckOutDate = new Date(checkOutDate);
+      // Geçersiz tarih formatı kontrolü
+      if (isNaN(parsedCheckOutDate.getTime())) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Geçersiz check-out tarihi formatı' 
+        });
+      }
+    }
+    
+    // Check-in check-out sıralaması kontrolü
+    if (parsedCheckInDate && parsedCheckOutDate && parsedCheckInDate > parsedCheckOutDate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Check-in tarihi check-out tarihinden sonra olamaz' 
+      });
+    }
+    
     // Yeni kodu veritabanına kaydet
     const newCode = new AccessCode({ 
       code, 
       room, 
-      validUntil
+      validUntil,
+      checkInDate: parsedCheckInDate,
+      checkOutDate: parsedCheckOutDate
     });
     await newCode.save();
     
     console.log(`Yeni misafir kodu oluşturuldu: ${code}, Oda: ${room}, Otel: ${HOTEL_NAME}`);
+    
+    // Tarih bilgilerini formatlı string olarak hazırla
+    const checkInInfo = parsedCheckInDate ? `\nCheck-in: ${parsedCheckInDate.toLocaleString()}` : '';
+    const checkOutInfo = parsedCheckOutDate ? `\nCheck-out: ${parsedCheckOutDate.toLocaleString()}` : '';
     
     // E-posta bildirimi
     const mailOptions = {
@@ -2048,7 +2108,7 @@ Otel: ${HOTEL_NAME}
 Oda: ${room}
 Kod: ${code}
 Oluşturulma: ${new Date().toLocaleString()}
-Geçerlilik Sonu: ${validUntil.toLocaleString()}
+Geçerlilik Sonu: ${validUntil.toLocaleString()}${checkInInfo}${checkOutInfo}
 `
     };
 
@@ -2066,6 +2126,8 @@ Geçerlilik Sonu: ${validUntil.toLocaleString()}
       room, 
       createdAt: new Date(),
       validUntil,
+      checkInDate: parsedCheckInDate,
+      checkOutDate: parsedCheckOutDate,
       expiresIn: validHours 
         ? `${validHours} saat` 
         : `${validDays || 1} gün`,
@@ -2085,8 +2147,42 @@ app.get('/api/list-codes', async (req, res) => {
       validUntil: { $gt: now }
     }).sort({ createdAt: -1 });
     
+    // Kodları işle ve tarih bilgilerini formatlı olarak ekle
+    const formattedCodes = codes.map(code => {
+      const result = code.toObject();
+      
+      // Tarih aralığı geçerli mi kontrolü
+      if (code.checkInDate && code.checkOutDate) {
+        const checkInDate = new Date(code.checkInDate);
+        const checkOutDate = new Date(code.checkOutDate);
+        
+        // Şu anki tarih check-in ile check-out arasında mı?
+        result.isCurrentlyValid = (now >= checkInDate && now <= checkOutDate);
+        result.dateStatus = result.isCurrentlyValid ? 'active' : 
+                           (now < checkInDate ? 'upcoming' : 'expired');
+      } else {
+        // Tarih aralığı belirtilmemişse sadece validUntil kontrolü yap
+        result.isCurrentlyValid = (now <= code.validUntil);
+        result.dateStatus = result.isCurrentlyValid ? 'active' : 'expired';
+      }
+      
+      // İnsan dostu tarih formatları ekle
+      if (code.checkInDate) {
+        result.formattedCheckIn = new Date(code.checkInDate).toLocaleString();
+      }
+      
+      if (code.checkOutDate) {
+        result.formattedCheckOut = new Date(code.checkOutDate).toLocaleString();
+      }
+      
+      result.formattedValidUntil = new Date(code.validUntil).toLocaleString();
+      result.formattedCreatedAt = new Date(code.createdAt).toLocaleString();
+      
+      return result;
+    });
+    
     console.log(`${codes.length} aktif misafir kodu listelendi (${HOTEL_NAME})`);
-    res.json(codes);
+    res.json(formattedCodes);
   } catch (error) {
     console.error(`Kod listeleme hatası:`, error);
     res.status(500).json({ error: 'Kodlar listelenirken hata oluştu' });
