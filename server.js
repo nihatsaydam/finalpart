@@ -2,6 +2,7 @@
 
 const express = require('express');
 const mongoose = require('mongoose');
+const { ObjectId } = require('mongodb'); // ObjectId import eklendi
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
@@ -23,6 +24,9 @@ console.log(`Starting server for hotel: ${HOTEL_NAME}`);
 console.log(`Using database: ${DB_NAME}`);
 console.log(`Admin email: ${ADMIN_EMAIL}`);
 
+// Database bağlantısı için değişken
+let db;
+
 // MongoDB Atlas bağlantısı - düzeltildi
 mongoose
   .connect(
@@ -35,6 +39,8 @@ mongoose
   )
   .then(() => {
     console.log('MongoDB bağlantısı başarılı!');
+    // db değişkenini set et
+    db = mongoose.connection.db;
   })
   .catch((error) => {
     console.error('MongoDB bağlantı hatası:', error);
@@ -50,6 +56,24 @@ const transporter = nodemailer.createTransport({
     pass: 'zxtl ddfk kcot ebki'
   }
 });
+
+// User Model - Authentication için
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { 
+    type: String, 
+    required: true,
+    enum: ['bellboy', 'complain', 'techadmin', 'laundryadmin', 'roomserviceadmin', 'greenprusa', 'houseadmin']
+  },
+  fullName: { type: String, default: '' },
+  email: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema, 'users');
+
 const housekeepingCleanSchema = new mongoose.Schema({
   cleaningOption: { type: String, required: true },
   username: { type: String, required: true },
@@ -1601,7 +1625,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await db.collection('users').findOne({ username });
+    const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -1614,22 +1638,21 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Create user object
-    const newUser = {
+    const newUser = new User({
       username,
       password: hashedPassword,
       role,
       fullName: fullName || '',
-      email: email || '',
-      createdAt: new Date()
-    };
+      email: email || ''
+    });
 
-    // Insert user to database
-    const result = await db.collection('users').insertOne(newUser);
+    // Save user to database
+    const savedUser = await newUser.save();
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
-      userId: result.insertedId.toString()
+      userId: savedUser._id.toString()
     });
 
   } catch (error) {
@@ -1655,7 +1678,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Find user
-    const user = await db.collection('users').findOne({ username });
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -1695,15 +1718,16 @@ app.post('/api/auth/login', async (req, res) => {
 // 3. Get All Users
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await db.collection('users')
-      .find({}, { projection: { password: 0 } }) // Exclude password field
-      .toArray();
+    const users = await User.find({}, { password: 0 }); // Exclude password field
 
-    // Convert ObjectId to string
+    // Convert to formatted response
     const formattedUsers = users.map(user => ({
-      ...user,
       id: user._id.toString(),
-      _id: undefined
+      username: user.username,
+      role: user.role,
+      fullName: user.fullName,
+      email: user.email,
+      createdAt: user.createdAt
     }));
 
     res.json({
@@ -1734,9 +1758,9 @@ app.delete('/api/users/:userId', async (req, res) => {
     }
 
     // Delete user
-    const result = await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+    const result = await User.findByIdAndDelete(userId);
 
-    if (result.deletedCount === 0) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -1781,12 +1805,13 @@ app.put('/api/users/:userId/role', async (req, res) => {
     }
 
     // Update user role
-    const result = await db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { role, updatedAt: new Date() } }
+    const result = await User.findByIdAndUpdate(
+      userId,
+      { role, updatedAt: new Date() },
+      { new: true }
     );
 
-    if (result.matchedCount === 0) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
