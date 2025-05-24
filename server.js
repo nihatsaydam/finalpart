@@ -1578,7 +1578,251 @@ app.delete('/api/delete-code/:code', async (req, res) => {
     res.status(500).json({ error: 'Kod silinirken hata oluştu' });
   }
 });
+// 1. User Registration
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, role, fullName, email } = req.body;
 
+    // Validation
+    if (!username || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username, password and role are required'
+      });
+    }
+
+    // Valid roles
+    const validRoles = ['bellboy', 'complain', 'techadmin', 'laundryadmin', 'roomserviceadmin', 'greenprusa', 'houseadmin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await db.collection('users').findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username already exists'
+      });
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create user object
+    const newUser = {
+      username,
+      password: hashedPassword,
+      role,
+      fullName: fullName || '',
+      email: email || '',
+      createdAt: new Date()
+    };
+
+    // Insert user to database
+    const result = await db.collection('users').insertOne(newUser);
+
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      userId: result.insertedId.toString()
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 2. User Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    // Validation
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
+      });
+    }
+
+    // Find user
+    const user = await db.collection('users').findOne({ username });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+
+    // Check password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: user._id.toString(),
+        username: user.username,
+        role: user.role,
+        fullName: user.fullName
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 3. Get All Users
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await db.collection('users')
+      .find({}, { projection: { password: 0 } }) // Exclude password field
+      .toArray();
+
+    // Convert ObjectId to string
+    const formattedUsers = users.map(user => ({
+      ...user,
+      id: user._id.toString(),
+      _id: undefined
+    }));
+
+    res.json({
+      success: true,
+      users: formattedUsers
+    });
+
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 4. Delete User
+app.delete('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate ObjectId
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    // Delete user
+    const result = await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 5. Update User Role
+app.put('/api/users/:userId/role', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    // Validation
+    const validRoles = ['bellboy', 'complain', 'techadmin', 'laundryadmin', 'roomserviceadmin', 'greenprusa', 'houseadmin'];
+    if (!role || !validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role'
+      });
+    }
+
+    // Validate ObjectId
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    // Update user role
+    const result = await db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { role, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User role updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Something went wrong!'
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
 
 // Ana sayfa endpoint'i (Opsiyonel)
 app.get('/', (req, res) => {
