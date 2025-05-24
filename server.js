@@ -10,6 +10,10 @@ const MongoStore = require('connect-mongo');
 
 const app = express();
 
+// Middleware'leri ekle
+app.use(cors());
+app.use(express.json());
+
 // Otel adı ve veritabanı adını environment variable'lardan al (varsayılan değerler ile)
 const HOTEL_NAME = process.env.HOTEL_NAME || 'Default Hotel';
 const DB_NAME = process.env.DB_NAME || 'GreenP';
@@ -19,9 +23,7 @@ console.log(`Starting server for hotel: ${HOTEL_NAME}`);
 console.log(`Using database: ${DB_NAME}`);
 console.log(`Admin email: ${ADMIN_EMAIL}`);
 
-
-
-// MongoDB Atlas bağlantısı
+// MongoDB Atlas bağlantısı - düzeltildi
 mongoose
   .connect(
     `mongodb+srv://nihatsaydam13131:nihat1234@keepsty.hrq40.mongodb.net/${DB_NAME}?retryWrites=true&w=majority`,
@@ -31,6 +33,12 @@ mongoose
       serverSelectionTimeoutMS: 5000 // Bağlantı zaman aşımını 5 saniye olarak ayarla
     }
   )
+  .then(() => {
+    console.log('MongoDB bağlantısı başarılı!');
+  })
+  .catch((error) => {
+    console.error('MongoDB bağlantı hatası:', error);
+  });
 
 // SMTP ayarlarınızı buraya ekleyin (örneğin, Gmail, SendGrid, vs.)
 const transporter = nodemailer.createTransport({
@@ -332,24 +340,6 @@ Mesaj: ${message}`
     }
   });
   
-  // İsteği kabul eden endpoint: status 'active' olarak güncelleniyor
-  app.put('/acceptRequest/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updatedRequest = await Tech.findByIdAndUpdate(
-        id,
-        { status: 'active' },
-        { new: true }
-      );
-      if (!updatedRequest) {
-        return res.status(404).json({ success: false, message: 'Request not found.' });
-      }
-      res.status(200).json({ success: true, message: 'Request activated!', data: updatedRequest });
-    } catch (err) {
-      console.error("Error updating request:", err.message);
-      res.status(500).json({ success: false, message: 'Error updating request.' });
-    }
-  });
   // İsteği kabul eden endpoint: status 'active' olarak güncelleniyor
   app.put('/acceptRequest/:id', async (req, res) => {
     try {
@@ -1595,6 +1585,10 @@ app.get('/', (req, res) => {
   res.send('Welcome to Keepsty Backend API!');
 });
 
-
-
-   
+// Server'ı başlat
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server ${HOTEL_NAME} için ${PORT} portunda çalışıyor!`);
+  console.log(`📧 Admin email: ${ADMIN_EMAIL}`);
+  console.log(`🗄️ Database: ${DB_NAME}`);
+});
