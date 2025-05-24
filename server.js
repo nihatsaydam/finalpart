@@ -3,10 +3,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
 
 const app = express();
 
