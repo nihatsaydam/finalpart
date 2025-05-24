@@ -74,6 +74,31 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema, 'users');
 
+// User Activity Model - Activity logging için
+const userActivitySchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  action: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+  ipAddress: { type: String, default: 'unknown' }
+});
+
+const UserActivity = mongoose.model('UserActivity', userActivitySchema, 'user_activities');
+
+// Helper function to log user activities
+async function logUserActivity(username, action, ipAddress = 'unknown') {
+  try {
+    const activity = new UserActivity({
+      username,
+      action,
+      ipAddress: ipAddress || 'unknown'
+    });
+    
+    await activity.save();
+  } catch (error) {
+    console.error('Error logging user activity:', error);
+  }
+}
+
 const housekeepingCleanSchema = new mongoose.Schema({
   cleaningOption: { type: String, required: true },
   username: { type: String, required: true },
@@ -1695,6 +1720,9 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    // Log user activity
+    await logUserActivity(username, 'Sisteme giriş yaptı', req.ip);
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -1825,6 +1853,111 @@ app.put('/api/users/:userId/role', async (req, res) => {
 
   } catch (error) {
     console.error('Update user role error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 6. Log User Activity
+app.post('/api/log-activity', async (req, res) => {
+  try {
+    const { username, action } = req.body;
+
+    if (!username || !action) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and action are required'
+      });
+    }
+
+    await logUserActivity(username, action, req.ip);
+
+    res.json({
+      success: true,
+      message: 'Activity logged successfully'
+    });
+
+  } catch (error) {
+    console.error('Log activity error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 7. Get User Activities
+app.get('/api/user-activities', async (req, res) => {
+  try {
+    const { username, limit = 50 } = req.query;
+    
+    let query = {};
+    if (username) {
+      query.username = username;
+    }
+
+    const activities = await UserActivity.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit));
+
+    // Convert to formatted response
+    const formattedActivities = activities.map(activity => ({
+      id: activity._id.toString(),
+      username: activity.username,
+      action: activity.action,
+      timestamp: activity.timestamp,
+      ipAddress: activity.ipAddress
+    }));
+
+    res.json({
+      success: true,
+      activities: formattedActivities
+    });
+
+  } catch (error) {
+    console.error('Get user activities error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// 8. Get User Online Status
+app.get('/api/users/status', async (req, res) => {
+  try {
+    const users = await User.find({}, { password: 0 });
+
+    const userStatuses = await Promise.all(users.map(async (user) => {
+      // Get user's last activity
+      const lastActivity = await UserActivity.findOne(
+        { username: user.username }
+      ).sort({ timestamp: -1 });
+
+      const isOnline = lastActivity && 
+        (Date.now() - new Date(lastActivity.timestamp).getTime()) < 5 * 60 * 1000; // 5 minutes
+
+      return {
+        id: user._id.toString(),
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        email: user.email,
+        createdAt: user.createdAt,
+        isOnline,
+        lastActivity: lastActivity ? lastActivity.timestamp : null
+      };
+    }));
+
+    res.json({
+      success: true,
+      users: userStatuses
+    });
+
+  } catch (error) {
+    console.error('Get user status error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
