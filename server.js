@@ -64,7 +64,7 @@ const userSchema = new mongoose.Schema({
   role: { 
     type: String, 
     required: true,
-    enum: ['bellboy', 'complain', 'techadmin', 'laundryadmin', 'roomserviceadmin', 'admin', 'houseadmin']
+    enum: ['bellboy', 'complain', 'techadmin', 'laundryadmin', 'roomserviceadmin', 'greenprusa', 'houseadmin']
   },
   fullName: { type: String, default: '' },
   email: { type: String, default: '' },
